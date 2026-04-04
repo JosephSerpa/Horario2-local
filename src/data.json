@@ -1,0 +1,67 @@
+{
+  "classrooms": [
+    {
+      "id": "c1",
+      "name": "Aula 201"
+    },
+    {
+      "id": "c2",
+      "name": "Aula 202"
+    },
+    {
+      "id": "c3",
+      "name": "Aula 301"
+    },
+    {
+      "id": "c4",
+      "name": "Aula 401"
+    },
+    {
+      "id": "c5",
+      "name": "Aula 402"
+    },
+    {
+      "id": "c6",
+      "name": "AULA MULTIUSOS"
+    }
+  ],
+  "courses": [
+    {
+      "id": "1772486760708",
+      "name": "EXCEL",
+      "color": "#31814c"
+    },
+    {
+      "id": "1772486772997",
+      "name": "AUTOCAD",
+      "color": "#e81111"
+    },
+    {
+      "id": "1772486788016",
+      "name": "DISEÑO GRAFICO",
+      "color": "#f32b7b"
+    },
+    {
+      "id": "1772486800875",
+      "name": "OFIMATICA",
+      "color": "#7b35fd"
+    },
+    {
+      "id": "1772486810450",
+      "name": "EDICION DE VIDEO",
+      "color": "#10fafe"
+    },
+    {
+      "id": "1772486826269",
+      "name": "REVIT",
+      "color": "#024bc0"
+    },
+    {
+      "id": "1772486842426",
+      "name": "POWER BI",
+      "color": "#feeb20"
+    }
+  ],
+  "sessions": [],
+  "professors": []
+}
