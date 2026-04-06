@@ -1,0 +1,426 @@
+﻿import { useMemo, useState, ChangeEvent, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Camera, Trash2, Download, ArrowLeft, Save, Filter, ImagePlus, CheckCircle2, AlertCircle } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import { useAppStore, DayOfWeek } from '../store';
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function RecordsPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const {
+    sessions,
+    courses,
+    classrooms,
+    professors,
+    isAdmin,
+    dailyRecords,
+    addDailyRecord,
+    deleteDailyRecord,
+    saveToCloud,
+  } = useAppStore();
+
+  const paramSessionId = searchParams.get('sessionId') || '';
+  const dayFromQuery = Number(searchParams.get('day'));
+  const fallbackDay = ((new Date().getDay() + 6) % 7) as DayOfWeek;
+  const selectedDay = Number.isInteger(dayFromQuery) && dayFromQuery >= 0 && dayFromQuery <= 6
+    ? (dayFromQuery as DayOfWeek)
+    : fallbackDay;
+
+  const availableSessions = useMemo(() => {
+    return sessions
+      .filter((s) => s.dayOfWeek === selectedDay && s.isActive !== false)
+      .sort((a, b) => `${a.startTime}-${a.classroomId}`.localeCompare(`${b.startTime}-${b.classroomId}`));
+  }, [sessions, selectedDay]);
+
+  const [selectedSessionId, setSelectedSessionId] = useState('');
+  const [studentsCountInput, setStudentsCountInput] = useState('');
+  const [description, setDescription] = useState('');
+  const [photoDrafts, setPhotoDrafts] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; type: 'success' | 'error'; message: string }>>([]);
+
+  const [filterClassroom, setFilterClassroom] = useState('all');
+  const [filterProfessor, setFilterProfessor] = useState('all');
+  const [filterCourse, setFilterCourse] = useState('all');
+
+  const notify = (type: 'success' | 'error', message: string) => {
+    const id = Date.now().toString() + Math.random().toString(36).substring(7);
+    setToasts((prev) => [...prev, { id, type, message }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 2400);
+  };
+
+  useEffect(() => {
+    if (paramSessionId && sessions.some((s) => s.id === paramSessionId)) {
+      setSelectedSessionId(paramSessionId);
+    } else if (availableSessions[0]) {
+      setSelectedSessionId(availableSessions[0].id);
+    }
+  }, [paramSessionId, sessions, availableSessions]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate('/admin');
+    }
+  }, [isAdmin, navigate]);
+
+  const selectedSession = useMemo(
+    () => sessions.find((s) => s.id === selectedSessionId),
+    [sessions, selectedSessionId],
+  );
+
+  useEffect(() => {
+    if (selectedSession) {
+      setStudentsCountInput(
+        typeof selectedSession.studentsCount === 'number' ? String(selectedSession.studentsCount) : '',
+      );
+    }
+  }, [selectedSessionId, selectedSession]);
+
+  const resolveProfessorName = (value: string) => {
+    const found = professors.find((p) => p.id === value);
+    return found?.name || value || 'Sin profesor';
+  };
+
+  const selectedCourse = selectedSession
+    ? courses.find((c) => c.id === selectedSession.courseId)
+    : undefined;
+
+  const selectedClassroom = selectedSession
+    ? classrooms.find((c) => c.id === selectedSession.classroomId)
+    : undefined;
+
+  const handlePhotoSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList).slice(0, 8);
+    const dataUrls = await Promise.all(files.map(readFileAsDataUrl));
+    setPhotoDrafts((prev) => [...prev, ...dataUrls].slice(0, 12));
+    event.target.value = '';
+  };
+
+  const removeDraftPhoto = (idx: number) => {
+    setPhotoDrafts((prev) => prev.filter((_, index) => index !== idx));
+  };
+
+  const handleSaveRecord = async () => {
+    if (!selectedSession) {
+      notify('error', 'Selecciona un horario para registrar.');
+      return;
+    }
+
+    if (photoDrafts.length === 0) {
+      notify('error', 'Agrega al menos una foto del salon.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      addDailyRecord({
+        sessionId: selectedSession.id,
+        courseId: selectedSession.courseId,
+        courseName: selectedCourse?.name || 'Curso',
+        classroomId: selectedSession.classroomId,
+        classroomName: selectedClassroom?.name || 'Salon',
+        professor: resolveProfessorName(selectedSession.professor),
+        startTime: selectedSession.startTime,
+        endTime: selectedSession.endTime,
+        dayOfWeek: selectedSession.dayOfWeek,
+        studentsCount: studentsCountInput === '' ? undefined : Math.max(0, Number(studentsCountInput)),
+        description: description.trim(),
+        photos: photoDrafts,
+      });
+      await saveToCloud(true);
+
+      setDescription('');
+      setPhotoDrafts([]);
+      notify('success', 'Registro guardado correctamente.');
+    } catch (error) {
+      notify('error', 'No se pudo guardar el registro.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const filteredRecords = useMemo(() => {
+    return dailyRecords.filter((record) => {
+      if (filterClassroom !== 'all' && record.classroomId !== filterClassroom) return false;
+      if (filterProfessor !== 'all' && record.professor !== filterProfessor) return false;
+      if (filterCourse !== 'all' && record.courseId !== filterCourse) return false;
+      return true;
+    });
+  }, [dailyRecords, filterClassroom, filterProfessor, filterCourse]);
+
+  const sortedRecords = useMemo(() => {
+    return [...filteredRecords].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [filteredRecords]);
+
+  const exportRecordsToExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Registros');
+
+    sheet.columns = [
+      { header: 'Fecha', key: 'date', width: 22 },
+      { header: 'Salon', key: 'classroom', width: 20 },
+      { header: 'Curso', key: 'course', width: 28 },
+      { header: 'Profesor', key: 'professor', width: 24 },
+      { header: 'Horario', key: 'time', width: 15 },
+      { header: 'Alumnos', key: 'studentsCount', width: 10 },
+      { header: 'Descripcion', key: 'description', width: 40 },
+      { header: 'Fotos', key: 'photosCount', width: 10 },
+    ];
+
+    sortedRecords.forEach((record) => {
+      sheet.addRow({
+        date: new Date(record.createdAt).toLocaleString(),
+        classroom: record.classroomName,
+        course: record.courseName,
+        professor: record.professor,
+        time: record.startTime && record.endTime ? `${record.startTime} - ${record.endTime}` : '-',
+        studentsCount: record.studentsCount ?? '',
+        description: record.description || '',
+        photosCount: record.photos.length,
+      });
+    });
+
+    sheet.getRow(1).font = { bold: true };
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `registros-diarios-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-5 sm:space-y-8">
+      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 w-[90vw] sm:w-[380px] pointer-events-none">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`pointer-events-auto rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm flex items-start gap-2 ${
+              toast.type === 'success'
+                ? 'bg-emerald-50/95 border-emerald-200 text-emerald-900 dark:bg-emerald-900/70 dark:border-emerald-700 dark:text-emerald-100'
+                : 'bg-red-50/95 border-red-200 text-red-900 dark:bg-red-900/70 dark:border-red-700 dark:text-red-100'
+            }`}
+          >
+            {toast.type === 'success' ? <CheckCircle2 size={18} className="mt-0.5 shrink-0" /> : <AlertCircle size={18} className="mt-0.5 shrink-0" />}
+            <p className="text-sm font-medium leading-snug">{toast.message}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <button
+          onClick={() => navigate('/')}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm font-medium"
+        >
+          <ArrowLeft size={16} /> Volver al horario
+        </button>
+        <button
+          onClick={exportRecordsToExcel}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+        >
+          <Download size={16} /> Exportar Excel
+        </button>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-6 space-y-4">
+        <h1 className="text-2xl sm:text-3xl font-bold">Registro Diario de Salones</h1>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Toca un horario, toma fotos desde tu celular y guarda la evidencia para revisarla despues.
+        </p>
+
+        <div className="space-y-3">
+          <label className="text-sm font-semibold">Horario a registrar</label>
+          <select
+            value={selectedSessionId}
+            onChange={(e) => setSelectedSessionId(e.target.value)}
+            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+          >
+            {availableSessions.length === 0 && <option value="">No hay horarios activos para hoy</option>}
+            {availableSessions.map((session) => {
+              const course = courses.find((c) => c.id === session.courseId);
+              const classroom = classrooms.find((c) => c.id === session.classroomId);
+              return (
+                <option key={session.id} value={session.id}>
+                  {session.startTime}-{session.endTime} | {classroom?.name || 'Salon'} | {course?.name || 'Curso'}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        {selectedSession && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
+              <div className="text-zinc-500">Curso</div>
+              <div className="font-semibold">{selectedCourse?.name || 'Curso'}</div>
+            </div>
+            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
+              <div className="text-zinc-500">Profesor</div>
+              <div className="font-semibold">{resolveProfessorName(selectedSession.professor)}</div>
+            </div>
+            <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
+              <div className="text-zinc-500">Salon</div>
+              <div className="font-semibold">{selectedClassroom?.name || 'Salon'}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold">Numero de alumnos (registro actual)</label>
+          <input
+            type="number"
+            min={0}
+            value={studentsCountInput}
+            onChange={(e) => setStudentsCountInput(e.target.value)}
+            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-semibold">Descripcion (opcional)</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            placeholder="Ejemplo: aula limpia, proyector operativo, observaciones..."
+            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+          />
+        </div>
+
+        <div className="space-y-4 pt-2">
+          <div className="flex flex-col gap-3 sm:gap-2">
+            <label className="text-sm font-semibold">Fotos del estado actual</label>
+            <label className="inline-flex w-fit items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 text-white text-sm font-semibold cursor-pointer">
+              <ImagePlus size={16} /> Tomar / agregar fotos
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                className="hidden"
+                onChange={handlePhotoSelect}
+              />
+            </label>
+          </div>
+
+          {photoDrafts.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {photoDrafts.map((photo, idx) => (
+                <div key={idx} className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                  <img src={photo} alt={`foto-${idx + 1}`} className="w-full h-32 object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeDraftPhoto(idx)}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-black/70 text-white"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="pt-2">
+          <button
+            onClick={handleSaveRecord}
+            disabled={isSaving || !selectedSessionId}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 disabled:bg-emerald-300 text-white font-semibold"
+          >
+            <Save size={16} /> {isSaving ? 'Guardando...' : 'Guardar registro'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-6 space-y-4">
+        <div className="flex items-center gap-2 font-semibold">
+          <Filter size={16} /> Filtros
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <select value={filterClassroom} onChange={(e) => setFilterClassroom(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+            <option value="all">Todos los salones</option>
+            {classrooms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={filterProfessor} onChange={(e) => setFilterProfessor(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+            <option value="all">Todos los profesores</option>
+            {Array.from(new Set(dailyRecords.map((r) => r.professor))).map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+            <option value="all">Todos los cursos</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-xl font-bold">Historial de Registros ({sortedRecords.length})</h2>
+
+        {sortedRecords.length === 0 && (
+          <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 text-sm text-zinc-500">
+            Todavia no hay registros guardados.
+          </div>
+        )}
+
+        {sortedRecords.map((record) => (
+          <div key={record.id} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-bold text-base sm:text-lg">{record.courseName}</div>
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {record.classroomName} | {record.professor}
+                </div>
+                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Alumnos: {record.studentsCount ?? '-'}
+                </div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  {new Date(record.createdAt).toLocaleString()} {record.startTime && record.endTime ? `| ${record.startTime} - ${record.endTime}` : ''}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  deleteDailyRecord(record.id);
+                  void saveToCloud(true);
+                  notify('success', 'Registro eliminado.');
+                }}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-sm"
+              >
+                <Trash2 size={14} /> Borrar
+              </button>
+            </div>
+
+            {record.description && (
+              <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{record.description}</p>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {record.photos.map((photo, idx) => (
+                <a key={idx} href={photo} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                  <img src={photo} alt={`registro-${record.id}-${idx + 1}`} className="w-full h-28 object-cover" />
+                </a>
+              ))}
+            </div>
+
+            <div className="text-xs text-zinc-500 flex items-center gap-1">
+              <Camera size={12} /> {record.photos.length} foto(s)
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+

@@ -42,12 +42,30 @@ export interface HistoryLog {
   date: string; // ISO string
 }
 
+export interface DailyClassRecord {
+  id: string;
+  sessionId?: string;
+  courseId: string;
+  courseName: string;
+  classroomId: string;
+  classroomName: string;
+  professor: string;
+  startTime?: string;
+  endTime?: string;
+  dayOfWeek?: DayOfWeek;
+  studentsCount?: number;
+  description?: string;
+  photos: string[]; // base64 data URLs for offline portability
+  createdAt: string; // ISO string
+}
+
 interface AppContent {
   classrooms: Classroom[];
   courses: Course[];
   sessions: ClassSession[];
   professors: Professor[];
   historyLogs: HistoryLog[];
+  dailyRecords: DailyClassRecord[];
 }
 
 interface AppState extends AppContent {
@@ -60,6 +78,9 @@ interface AppState extends AppContent {
   setCourses: (courses: Course[]) => void;
   setSessions: (sessions: ClassSession[]) => void;
   setProfessors: (professors: Professor[]) => void;
+  setDailyRecords: (records: DailyClassRecord[]) => void;
+  addDailyRecord: (record: Omit<DailyClassRecord, 'id' | 'createdAt'>) => void;
+  deleteDailyRecord: (id: string) => void;
   addHistoryLog: (log: Omit<HistoryLog, 'id' | 'date'>) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   setLanguage: (lang: 'es' | 'en') => void;
@@ -82,6 +103,7 @@ const fallbackContent: AppContent = {
   sessions: defaultSessions,
   professors: defaultProfessors,
   historyLogs: [],
+  dailyRecords: [],
 };
 
 function normalizeContent(content: Partial<AppContent> | undefined): AppContent {
@@ -91,6 +113,7 @@ function normalizeContent(content: Partial<AppContent> | undefined): AppContent 
     sessions: Array.isArray(content?.sessions) ? content.sessions : fallbackContent.sessions,
     professors: Array.isArray(content?.professors) ? content.professors : fallbackContent.professors,
     historyLogs: Array.isArray(content?.historyLogs) ? content.historyLogs : fallbackContent.historyLogs,
+    dailyRecords: Array.isArray(content?.dailyRecords) ? content.dailyRecords : fallbackContent.dailyRecords,
   };
 }
 
@@ -107,6 +130,22 @@ export const useAppStore = create<AppState>()(
       setCourses: (courses) => set({ courses }),
       setSessions: (sessions) => set({ sessions }),
       setProfessors: (professors) => set({ professors }),
+      setDailyRecords: (dailyRecords) => set({ dailyRecords }),
+      addDailyRecord: (record) =>
+        set((state) => ({
+          dailyRecords: [
+            {
+              ...record,
+              id: Date.now().toString() + Math.random().toString(36).substring(7),
+              createdAt: new Date().toISOString(),
+            },
+            ...state.dailyRecords,
+          ],
+        })),
+      deleteDailyRecord: (id) =>
+        set((state) => ({
+          dailyRecords: state.dailyRecords.filter((record) => record.id !== id),
+        })),
       addHistoryLog: (log) =>
         set((state) => {
           const newLog: HistoryLog = {
@@ -155,6 +194,7 @@ export const useAppStore = create<AppState>()(
             sessions: state.sessions,
             professors: state.professors,
             historyLogs: state.historyLogs,
+            dailyRecords: state.dailyRecords,
           };
 
           const response = await fetch('/api/data', {
@@ -188,6 +228,7 @@ export const useAppStore = create<AppState>()(
         sessions: state.sessions,
         professors: state.professors,
         historyLogs: state.historyLogs,
+        dailyRecords: state.dailyRecords,
       }),
     },
   ),

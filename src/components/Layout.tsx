@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Settings, ShieldAlert, Calendar, MonitorPlay } from 'lucide-react';
+import { Settings, ShieldAlert, Calendar, MonitorPlay, Camera } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAppStore } from '../store';
 import { SettingsModal } from './SettingsModal';
 
 export function Layout() {
-  const { theme, isLoading } = useAppStore();
+  const { theme, isLoading, isAdmin } = useAppStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const location = useLocation();
 
@@ -44,6 +44,19 @@ export function Layout() {
 
       {/* Floating Buttons */}
       <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-40">
+        {isAdmin && (
+          <Link to="/registros">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-4 rounded-2xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md shadow-lg border border-zinc-200/50 dark:border-zinc-800/50 text-zinc-700 dark:text-zinc-300 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+              title="Registros con fotos"
+            >
+              <Camera size={24} />
+            </motion.button>
+          </Link>
+        )}
+
         <Link to="/ahora">
           <motion.button
             whileHover={{ scale: 1.05 }}

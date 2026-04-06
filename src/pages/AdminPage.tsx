@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore, DayOfWeek, Classroom, Course, ClassSession, Professor } from '../store';
 import { useTranslation } from '../i18n';
-import { Plus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown, Camera } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
@@ -30,6 +30,8 @@ export function AdminPage() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isTouchMode, setIsTouchMode] = useState(false);
+  const [selectedSessionActionId, setSelectedSessionActionId] = useState<string | null>(null);
 
   useEffect(() => {
     const day = new Date().getDay();
@@ -38,10 +40,22 @@ export function AdminPage() {
   }, []);
 
   useEffect(() => {
+    setSelectedSessionActionId(null);
+  }, [activeDay]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 30000); // Update every 30 seconds
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(hover: none), (pointer: coarse)');
+    const applyMode = () => setIsTouchMode(mediaQuery.matches);
+    applyMode();
+    mediaQuery.addEventListener('change', applyMode);
+    return () => mediaQuery.removeEventListener('change', applyMode);
   }, []);
 
   const firstLoadRef = useRef(true);
@@ -1331,8 +1345,13 @@ export function AdminPage() {
                         <label className="block text-sm font-medium mb-2">{t.studentsCount}</label>
                         <input
                           type="number"
-                          value={editingSession.studentsCount}
-                          onChange={(e) => setEditingSession({ ...editingSession, studentsCount: parseInt(e.target.value) || 0 })}
+                          value={editingSession.studentsCount ?? ''}
+                          onChange={(e) =>
+                            setEditingSession({
+                              ...editingSession,
+                              studentsCount: e.target.value === '' ? undefined : parseInt(e.target.value, 10),
+                            })
+                          }
                           className="w-full px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border-transparent focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 focus:ring-0"
                         />
                       </div>
@@ -1527,6 +1546,10 @@ export function AdminPage() {
                                     className="absolute rounded-xl p-2 overflow-hidden transition-all hover:!z-50 hover:scale-[1.02] cursor-pointer group"
                                     style={getSessionStyle(session, activeSessions)}
                                     onClick={() => {
+                                      if (isTouchMode && selectedSessionActionId !== session.id) {
+                                        setSelectedSessionActionId(session.id);
+                                        return;
+                                      }
                                       setEditingSession(session);
                                       if (session.groupId) {
                                         const groupDays = sessions
@@ -1538,6 +1561,9 @@ export function AdminPage() {
                                       }
                                     }}
                                   >
+                                    {isTouchMode && selectedSessionActionId === session.id && (
+                                      <div className="absolute inset-0 border-2 border-amber-300 rounded-xl pointer-events-none z-10" />
+                                    )}
                                     <div className="flex items-center gap-1 mb-1">
                                       <BookOpen size={10} className="shrink-0" />
                                       <div className="text-xs font-bold truncate">{course?.name || 'Unknown'}</div>
@@ -1564,11 +1590,11 @@ export function AdminPage() {
                                       <span>Mod: {session.module}</span>
                                     </div>
                                     {hasAlert(session) && (
-                                      <div className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md transition-opacity group-hover:opacity-0" title="Alerta: Falta profesor o pocos alumnos">
+                                      <div className={`absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-md transition-opacity ${isTouchMode && selectedSessionActionId === session.id ? 'opacity-0' : 'group-hover:opacity-0'}`} title="Alerta: Falta profesor o pocos alumnos">
                                         <AlertTriangle size={12} />
                                       </div>
                                     )}
-                                    <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                    <div className={`absolute top-1 right-1 transition-opacity flex gap-1 ${(isTouchMode && selectedSessionActionId === session.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -1579,6 +1605,16 @@ export function AdminPage() {
                                         <Trash2 size={12} />
                                       </button>
                                     </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/registros?sessionId=${session.id}&day=${activeDay}`);
+                                      }}
+                                      className={`absolute bottom-1 right-1 transition-opacity p-1 bg-black/35 text-white rounded-md hover:bg-black/55 ${(isTouchMode && selectedSessionActionId === session.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                      title="Agregar registro de salon"
+                                    >
+                                      <Camera size={12} />
+                                    </button>
                                   </motion.div>
                                 );
                               })}

@@ -9,6 +9,7 @@ import { Layout } from './components/Layout';
 import { SchedulePage } from './pages/SchedulePage';
 import { AdminPage } from './pages/AdminPage';
 import { NowPage } from './pages/NowPage';
+import { RecordsPage } from './pages/RecordsPage';
 import { useAppStore } from './store';
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<SchedulePage />} />
           <Route path="admin" element={<AdminPage />} />
+          <Route path="registros" element={<RecordsPage />} />
         </Route>
         <Route path="/ahora" element={<NowPage />} />
       </Routes>

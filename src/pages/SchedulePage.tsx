@@ -1,14 +1,16 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore, DayOfWeek } from '../store';
 import { useTranslation } from '../i18n';
 
-import { Clock, Users, BookOpen, User as UserIcon, Printer, Code, AlertTriangle } from 'lucide-react';
+import { Clock, Users, BookOpen, User as UserIcon, Printer, Code, AlertTriangle, Camera } from 'lucide-react';
 
 const HOURS = Array.from({ length: 16 }, (_, i) => i + 8); // 8 to 23
 
 export function SchedulePage() {
-  const { classrooms, courses, sessions, language } = useAppStore();
+  const { classrooms, courses, sessions, language, isAdmin } = useAppStore();
+  const navigate = useNavigate();
   const t = useTranslation(language);
   const [activeDay, setActiveDay] = useState<DayOfWeek>(() => {
     const day = new Date().getDay();
@@ -247,9 +249,22 @@ export function SchedulePage() {
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.9 }}
                             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                            className="absolute rounded-xl p-2 overflow-hidden transition-all hover:!z-50 hover:scale-[1.02] cursor-pointer group"
+                            className="absolute rounded-xl p-2 overflow-hidden transition-all hover:!z-50 hover:scale-[1.02] group"
                             style={getSessionStyle(session, activeSessions)}
                           >
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/registros?sessionId=${session.id}&day=${activeDay}`);
+                                }}
+                                className="absolute bottom-1 right-1 p-1 rounded-md bg-black/35 hover:bg-black/55 text-white no-print z-20 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                title="Agregar registro de salon"
+                              >
+                                <Camera size={11} />
+                              </button>
+                            )}
                             <div className="flex items-center gap-1 mb-1">
                               <BookOpen size={10} className="shrink-0" />
                               <div className="text-xs font-bold truncate">{course?.name || 'Unknown'}</div>
