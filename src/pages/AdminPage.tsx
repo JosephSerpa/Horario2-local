@@ -1690,10 +1690,10 @@ export function AdminPage() {
               <div className="bg-white dark:bg-zinc-900 p-8 rounded-3xl shadow-sm border border-zinc-200 dark:border-zinc-800">
                 <div className="bg-emerald-50 dark:bg-emerald-900/20 p-6 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 mb-8">
                   <h3 className="text-lg font-bold text-emerald-900 dark:text-emerald-300 mb-2 flex items-center gap-2">
-                    <Save size={20} /> Sincronización en Tiempo Real Activa
+                    <Save size={20} /> Sincronizacion en Tiempo Real Activa
                   </h3>
                   <p className="text-emerald-700 dark:text-emerald-400 text-sm">
-                    Cualquier cambio que realices en el horario, aulas, cursos o profesores se guarda automáticamente en la nube (Supabase) después de 1.5 segundos de inactividad. Ya no necesitas guardar manualmente.
+                    Cualquier cambio que realices en el horario, aulas, cursos o profesores se guarda automaticamente en la base de datos local (SQLite) despues de 1.5 segundos de inactividad. Ya no necesitas guardar manualmente.
                   </p>
                 </div>
 
@@ -1993,3 +1993,5 @@ export function AdminPage() {
     </div>
   );
 }
+
+

@@ -1,20 +1,32 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Horario2 (SQLite local)
 
-# Run and deploy your AI Studio app
+Proyecto React + Express con persistencia local en SQLite, guardada dentro del repositorio.
 
-This contains everything you need to run your app locally.
+## Requisitos
 
-View your app in AI Studio: https://ai.studio/apps/efd28722-62d0-47ab-bcc8-34a3be47479c
+- Node.js 20+
 
-## Run Locally
+## Ejecutar en local
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
+1. Instalar dependencias:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Ejecutar el servidor (frontend + API):
    `npm run dev`
+3. Abrir en navegador:
+   `http://localhost:3000`
+
+## Base de datos local
+
+- Archivo SQLite: `data/horario.db`
+- API usada por el frontend:
+  - `GET /api/data`
+  - `PUT /api/data`
+- En el primer arranque se inicializa con `src/data.json` si la BD no existe.
+
+## Migrar a otra PC
+
+1. Subir cambios al repo (incluyendo `data/horario.db` si quieres llevar los datos actuales).
+2. Clonar en la otra PC.
+3. Ejecutar `npm install` y luego `npm run dev`.
+
+Si no subes `data/horario.db`, el sistema crea una nueva BD desde `src/data.json`.

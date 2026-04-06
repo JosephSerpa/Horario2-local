@@ -1,12 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createClient } from '@supabase/supabase-js';
 import defaultData from './data.json';
-
-// Supabase Client (Optional)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-export const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Lunes, 6 = Domingo
 
@@ -31,7 +25,7 @@ export interface ClassSession {
   courseId: string;
   professor: string;
   startTime: string; // "08:00"
-  endTime: string;   // "10:00"
+  endTime: string; // "10:00"
   module: string;
   studentsCount: number;
   classroomId: string;
@@ -48,17 +42,20 @@ export interface HistoryLog {
   date: string; // ISO string
 }
 
-interface AppState {
+interface AppContent {
   classrooms: Classroom[];
   courses: Course[];
   sessions: ClassSession[];
   professors: Professor[];
   historyLogs: HistoryLog[];
+}
+
+interface AppState extends AppContent {
   theme: 'light' | 'dark';
   language: 'es' | 'en';
   isAdmin: boolean;
   isLoading: boolean;
-  
+
   setClassrooms: (classrooms: Classroom[]) => void;
   setCourses: (courses: Course[]) => void;
   setSessions: (sessions: ClassSession[]) => void;
@@ -68,8 +65,8 @@ interface AppState {
   setLanguage: (lang: 'es' | 'en') => void;
   setIsAdmin: (isAdmin: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
-  
-  // Cloud Sync
+
+  // Local DB Sync
   loadFromCloud: (silent?: boolean) => Promise<void>;
   saveToCloud: (silent?: boolean) => Promise<boolean>;
 }
@@ -79,86 +76,102 @@ const defaultCourses: Course[] = defaultData.courses as Course[];
 const defaultSessions: ClassSession[] = defaultData.sessions as ClassSession[];
 const defaultProfessors: Professor[] = (defaultData.professors || []) as Professor[];
 
+const fallbackContent: AppContent = {
+  classrooms: defaultClassrooms,
+  courses: defaultCourses,
+  sessions: defaultSessions,
+  professors: defaultProfessors,
+  historyLogs: [],
+};
+
+function normalizeContent(content: Partial<AppContent> | undefined): AppContent {
+  return {
+    classrooms: Array.isArray(content?.classrooms) ? content.classrooms : fallbackContent.classrooms,
+    courses: Array.isArray(content?.courses) ? content.courses : fallbackContent.courses,
+    sessions: Array.isArray(content?.sessions) ? content.sessions : fallbackContent.sessions,
+    professors: Array.isArray(content?.professors) ? content.professors : fallbackContent.professors,
+    historyLogs: Array.isArray(content?.historyLogs) ? content.historyLogs : fallbackContent.historyLogs,
+  };
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
-      classrooms: defaultClassrooms,
-      courses: defaultCourses,
-      sessions: defaultSessions,
-      professors: defaultProfessors,
-      historyLogs: [],
+      ...fallbackContent,
       theme: 'light',
       language: 'es',
       isAdmin: false,
       isLoading: false,
-      
+
       setClassrooms: (classrooms) => set({ classrooms }),
       setCourses: (courses) => set({ courses }),
       setSessions: (sessions) => set({ sessions }),
       setProfessors: (professors) => set({ professors }),
-      addHistoryLog: (log) => set((state) => {
-        const newLog: HistoryLog = {
-          ...log,
-          id: Date.now().toString() + Math.random().toString(36).substring(7),
-          date: new Date().toISOString()
-        };
-        // Keep only the last 10 logs
-        const newLogs = [newLog, ...(state.historyLogs || [])].slice(0, 10);
-        return { historyLogs: newLogs };
-      }),
+      addHistoryLog: (log) =>
+        set((state) => {
+          const newLog: HistoryLog = {
+            ...log,
+            id: Date.now().toString() + Math.random().toString(36).substring(7),
+            date: new Date().toISOString(),
+          };
+          // Keep only the last 10 logs
+          const newLogs = [newLog, ...(state.historyLogs || [])].slice(0, 10);
+          return { historyLogs: newLogs };
+        }),
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setIsAdmin: (isAdmin) => set({ isAdmin }),
       setIsLoading: (isLoading) => set({ isLoading }),
 
       loadFromCloud: async (silent = false) => {
-        if (!supabase) return;
         if (!silent) set({ isLoading: true });
         try {
-          const { data, error } = await supabase
-            .from('app_data')
-            .select('content')
-            .eq('id', 'main_schedule')
-            .single();
-          
-          if (data?.content) {
-            const content = data.content;
-            set({
-              classrooms: content.classrooms || defaultClassrooms,
-              courses: content.courses || defaultCourses,
-              sessions: content.sessions || defaultSessions,
-              professors: content.professors || defaultProfessors,
-              historyLogs: content.historyLogs || [],
-            });
+          const response = await fetch('/api/data', {
+            method: 'GET',
+            cache: 'no-store',
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to load data: ${response.status}`);
           }
+
+          const data = await response.json();
+          const normalized = normalizeContent(data?.content);
+          set(normalized);
         } catch (error) {
-          console.error('Error loading from cloud:', error);
+          console.error('Error loading from local DB:', error);
         } finally {
           if (!silent) set({ isLoading: false });
         }
       },
 
       saveToCloud: async (silent = false) => {
-        if (!supabase) return false;
         if (!silent) set({ isLoading: true });
         try {
           const state = get();
-          const content = {
+          const content: AppContent = {
             classrooms: state.classrooms,
             courses: state.courses,
             sessions: state.sessions,
             professors: state.professors,
             historyLogs: state.historyLogs,
           };
-          
-          const { error } = await supabase
-            .from('app_data')
-            .upsert({ id: 'main_schedule', content }, { onConflict: 'id' });
-          
-          if (error) throw error;
+
+          const response = await fetch('/api/data', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(content),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to save data: ${response.status}`);
+          }
+
           return true;
         } catch (error) {
-          console.error('Error saving to cloud:', error);
+          console.error('Error saving to local DB:', error);
           return false;
         } finally {
           if (!silent) set({ isLoading: false });
@@ -176,6 +189,6 @@ export const useAppStore = create<AppState>()(
         professors: state.professors,
         historyLogs: state.historyLogs,
       }),
-    }
-  )
+    },
+  ),
 );
