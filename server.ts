@@ -247,7 +247,12 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static("dist"));
+    const distPath = path.resolve(__dirname, "dist");
+    app.use(express.static(distPath));
+    // SPA fallback: allow refresh/direct access on routes like /admin, /ahora, /registros
+    app.get(/^(?!\/api).*/, (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
