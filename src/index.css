@@ -3,17 +3,23 @@
 @custom-variant dark (&:is(.dark, .dark *));
 
 @layer base {
+  :root {
+    --app-vw: 100vw;
+    --app-vh: 100dvh;
+  }
+
   html,
   body,
   #root {
-    width: 100%;
-    min-width: 100%;
-    max-width: 100%;
+    width: var(--app-vw);
+    min-width: var(--app-vw);
+    max-width: var(--app-vw);
+    min-height: var(--app-vh);
   }
 
   body {
     margin: 0;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 }
 
