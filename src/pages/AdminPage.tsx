@@ -3,11 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore, DayOfWeek, Classroom, Course, ClassSession, Professor } from '../store';
 import { useTranslation } from '../i18n';
-import { Plus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown, Camera } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown, Camera, RefreshCw, RotateCcw } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
 const HOURS = Array.from({ length: 16 }, (_, i) => i + 8); // 8 to 23
+
+interface BackupItem {
+  filename: string;
+  size: number;
+  createdAt: string;
+}
 
 export function AdminPage() {
   const { isAdmin, setIsAdmin, language, classrooms, setClassrooms, courses, setCourses, sessions, setSessions, professors, setProfessors, addHistoryLog, historyLogs, loadFromCloud, saveToCloud } = useAppStore();
@@ -94,6 +100,12 @@ export function AdminPage() {
     };
   }, [classrooms, courses, sessions, professors, historyLogs, isAdmin, saveToCloud]);
 
+  useEffect(() => {
+    if (isAdmin && activeTab === 'data') {
+      void loadBackups();
+    }
+  }, [isAdmin, activeTab]);
+
   // Form states
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [editingClassroom, setEditingClassroom] = useState<Classroom | null>(null);
@@ -107,6 +119,9 @@ export function AdminPage() {
   const [isProfessorDropdownOpen, setIsProfessorDropdownOpen] = useState(false);
   const [courseSearch, setCourseSearch] = useState('');
   const [isCourseDropdownOpen, setIsCourseDropdownOpen] = useState(false);
+  const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [isBackupsLoading, setIsBackupsLoading] = useState(false);
+  const [backupActionBusy, setBackupActionBusy] = useState<string | null>(null);
 
   const activeSessions = sessions.filter((s) => s.dayOfWeek === activeDay);
 
@@ -850,6 +865,68 @@ export function AdminPage() {
     navigator.clipboard.writeText(generatedCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const loadBackups = async () => {
+    setIsBackupsLoading(true);
+    try {
+      const response = await fetch('/api/backups');
+      if (!response.ok) throw new Error('Failed to load backups');
+      const data = await response.json();
+      setBackups(Array.isArray(data?.backups) ? data.backups : []);
+    } catch (error) {
+      console.error('Error loading backups:', error);
+      setBackups([]);
+    } finally {
+      setIsBackupsLoading(false);
+    }
+  };
+
+  const createBackupNow = async () => {
+    setBackupActionBusy('create');
+    try {
+      const response = await fetch('/api/backups/create', { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to create backup');
+      await loadBackups();
+    } catch (error) {
+      console.error('Error creating backup:', error);
+    } finally {
+      setBackupActionBusy(null);
+    }
+  };
+
+  const restoreBackup = (filename: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Restaurar Respaldo',
+      message: `Se restaurara la copia ${filename}. Esta accion reemplaza los datos actuales.`,
+      onConfirm: () => {
+        setConfirmDialog(null);
+        void (async () => {
+          setBackupActionBusy(filename);
+          try {
+            const response = await fetch('/api/backups/restore', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename }),
+            });
+            if (!response.ok) throw new Error('Failed to restore backup');
+            await loadFromCloud();
+            await loadBackups();
+          } catch (error) {
+            console.error('Error restoring backup:', error);
+          } finally {
+            setBackupActionBusy(null);
+          }
+        })();
+      },
+    });
   };
 
   if (!isAdmin) {
@@ -1772,6 +1849,63 @@ export function AdminPage() {
                   >
                     <Code size={20} /> {t.generateCode}
                   </button>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-5 mb-8 bg-zinc-50/60 dark:bg-zinc-950/40">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Respaldos Automaticos</h3>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Se crea 1 copia cada 5 horas y se conservan solo las ultimas 5.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={loadBackups}
+                        disabled={isBackupsLoading}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 text-sm font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-60"
+                      >
+                        <RefreshCw size={16} className={isBackupsLoading ? 'animate-spin' : ''} />
+                        Actualizar
+                      </button>
+                      <button
+                        onClick={createBackupNow}
+                        disabled={backupActionBusy === 'create'}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+                      >
+                        <Save size={16} />
+                        {backupActionBusy === 'create' ? 'Creando...' : 'Crear respaldo ahora'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isBackupsLoading ? (
+                    <div className="text-sm text-zinc-500">Cargando respaldos...</div>
+                  ) : backups.length === 0 ? (
+                    <div className="text-sm text-zinc-500">No hay respaldos disponibles todavia.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {backups.map((backup) => (
+                        <div
+                          key={backup.filename}
+                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-zinc-200 dark:border-zinc-800 px-4 py-3 bg-white dark:bg-zinc-900"
+                        >
+                          <div>
+                            <div className="font-medium text-zinc-900 dark:text-zinc-100">{new Date(backup.createdAt).toLocaleString()}</div>
+                            <div className="text-xs text-zinc-500">{backup.filename} · {formatBytes(backup.size)}</div>
+                          </div>
+                          <button
+                            onClick={() => restoreBackup(backup.filename)}
+                            disabled={backupActionBusy === backup.filename}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-60"
+                          >
+                            <RotateCcw size={14} />
+                            {backupActionBusy === backup.filename ? 'Restaurando...' : 'Restaurar'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {generatedCode && (
