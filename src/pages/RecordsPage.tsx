@@ -142,11 +142,18 @@ export function RecordsPage() {
         description: description.trim(),
         photos: photoDrafts,
       });
-      await saveToCloud(true);
+      const saved = await saveToCloud(true);
+      if (!saved) {
+        notify('error', 'Se guardo localmente, pero no se pudo sincronizar en la base.');
+        return;
+      }
 
       setDescription('');
       setPhotoDrafts([]);
       notify('success', 'Registro guardado correctamente.');
+      if (paramSessionId) {
+        window.setTimeout(() => navigate('/'), 350);
+      }
     } catch (error) {
       notify('error', 'No se pudo guardar el registro.');
     } finally {

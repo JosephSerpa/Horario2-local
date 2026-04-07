@@ -228,7 +228,8 @@ export const useAppStore = create<AppState>()(
         sessions: state.sessions,
         professors: state.professors,
         historyLogs: state.historyLogs,
-        dailyRecords: state.dailyRecords,
+        // Do not persist photo-heavy records to localStorage.
+        // They are persisted in SQLite via /api/data and can exceed browser quota on mobile.
       }),
     },
   ),
