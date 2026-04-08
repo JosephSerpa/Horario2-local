@@ -82,6 +82,7 @@ interface AppState extends AppContent {
 
   loadRecordsFromDb: (silent?: boolean) => Promise<void>;
   addDailyRecordToDb: (record: Omit<DailyClassRecord, 'id' | 'createdAt'>) => Promise<boolean>;
+  updateDailyRecordInDb: (id: string, record: Omit<DailyClassRecord, 'id' | 'createdAt'>) => Promise<boolean>;
   deleteDailyRecordFromDb: (id: string) => Promise<boolean>;
 
   addHistoryLog: (log: Omit<HistoryLog, 'id' | 'date'>) => void;
@@ -159,6 +160,22 @@ export const useAppStore = create<AppState>()(
           return true;
         } catch (error) {
           console.error('Error creating record in DB:', error);
+          return false;
+        }
+      },
+
+      updateDailyRecordInDb: async (id, record) => {
+        try {
+          const response = await fetch(`/api/records/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record),
+          });
+          if (!response.ok) throw new Error(`Failed to update record: ${response.status}`);
+          await get().loadRecordsFromDb(true);
+          return true;
+        } catch (error) {
+          console.error('Error updating record in DB:', error);
           return false;
         }
       },

@@ -298,6 +298,37 @@ async function startServer() {
     }
   });
 
+  app.put("/api/records/:id", (req, res) => {
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Invalid id" });
+
+      const incoming = req.body;
+      if (!incoming || typeof incoming !== "object") {
+        return res.status(400).json({ error: "Invalid payload" });
+      }
+
+      const existing = db
+        .prepare("SELECT id, payload, created_at FROM daily_records WHERE id = ?")
+        .get(id) as DailyRecordDb | undefined;
+
+      if (!existing) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      const createdAt = existing.created_at;
+      const record = { ...(incoming as Record<string, unknown>), id, createdAt };
+
+      db.prepare("UPDATE daily_records SET payload = ? WHERE id = ?")
+        .run(JSON.stringify(record), id);
+
+      return res.json({ success: true, record });
+    } catch (error) {
+      console.error("Error updating daily record:", error);
+      return res.status(500).json({ error: "Failed to update record" });
+    }
+  });
+
   app.get("/api/backups", (_req, res) => {
     try {
       const backups = listBackups().map((entry) => ({

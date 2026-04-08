@@ -1,6 +1,6 @@
 ﻿import { useMemo, useState, ChangeEvent, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Camera, Trash2, Download, ArrowLeft, Save, Filter, ImagePlus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Camera, Trash2, Download, ArrowLeft, Save, Filter, ImagePlus, CheckCircle2, AlertCircle, Edit2, X } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { useAppStore, DayOfWeek } from '../store';
@@ -12,6 +12,35 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('No se pudo leer la imagen'));
     reader.readAsDataURL(file);
   });
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+    img.src = dataUrl;
+  });
+}
+
+async function compressImageToFhd(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImageFromDataUrl(dataUrl);
+
+  const maxWidth = 1920;
+  const maxHeight = 1080;
+  const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+  const targetWidth = Math.max(1, Math.round(image.width * scale));
+  const targetHeight = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return dataUrl;
+
+  ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+  return canvas.toDataURL('image/jpeg', 0.82);
 }
 
 export function RecordsPage() {
@@ -26,6 +55,7 @@ export function RecordsPage() {
     dailyRecords,
     loadRecordsFromDb,
     addDailyRecordToDb,
+    updateDailyRecordInDb,
     deleteDailyRecordFromDb,
   } = useAppStore();
 
@@ -46,6 +76,8 @@ export function RecordsPage() {
   const [studentsCountInput, setStudentsCountInput] = useState('');
   const [description, setDescription] = useState('');
   const [photoDrafts, setPhotoDrafts] = useState<string[]>([]);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: string; type: 'success' | 'error'; message: string }>>([]);
 
@@ -117,13 +149,63 @@ export function RecordsPage() {
     if (!fileList || fileList.length === 0) return;
 
     const files = Array.from(fileList).slice(0, 8);
-    const dataUrls = await Promise.all(files.map(readFileAsDataUrl));
-    setPhotoDrafts((prev) => [...prev, ...dataUrls].slice(0, 12));
+    try {
+      const dataUrls = await Promise.all(files.map(compressImageToFhd));
+      setPhotoDrafts((prev) => [...prev, ...dataUrls].slice(0, 12));
+    } catch (error) {
+      notify('error', 'No se pudo procesar una o mas imagenes.');
+    }
     event.target.value = '';
   };
 
   const removeDraftPhoto = (idx: number) => {
     setPhotoDrafts((prev) => prev.filter((_, index) => index !== idx));
+  };
+
+  const findSessionForRecord = (record: { sessionId?: string; courseId: string; classroomId: string; startTime?: string; endTime?: string; dayOfWeek?: DayOfWeek }) => {
+    if (record.sessionId) {
+      const direct = sessions.find((s) => s.id === record.sessionId);
+      if (direct) return direct;
+    }
+
+    const byData = sessions.find((s) => {
+      const sameDay = typeof record.dayOfWeek === 'number' ? s.dayOfWeek === record.dayOfWeek : true;
+      return (
+        s.courseId === record.courseId &&
+        s.classroomId === record.classroomId &&
+        s.startTime === (record.startTime || s.startTime) &&
+        s.endTime === (record.endTime || s.endTime) &&
+        sameDay
+      );
+    });
+    return byData;
+  };
+
+  const handleEditRecord = (record: typeof dailyRecords[number]) => {
+    const matchedSession = findSessionForRecord(record);
+    if (matchedSession) {
+      setSelectedSessionId(matchedSession.id);
+    }
+    setStudentsCountInput(
+      typeof record.studentsCount === 'number' ? String(record.studentsCount) : '',
+    );
+    setDescription(record.description || '');
+    setPhotoDrafts(Array.isArray(record.photos) ? record.photos : []);
+    setEditingRecordId(record.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const clearEditor = () => {
+    setEditingRecordId(null);
+    setDescription('');
+    setPhotoDrafts([]);
+    if (selectedSession) {
+      setStudentsCountInput(
+        typeof selectedSession.studentsCount === 'number' ? String(selectedSession.studentsCount) : '',
+      );
+    } else {
+      setStudentsCountInput('');
+    }
   };
 
   const handleSaveRecord = async () => {
@@ -139,7 +221,7 @@ export function RecordsPage() {
 
     setIsSaving(true);
     try {
-      const ok = await addDailyRecordToDb({
+      const payload = {
         sessionId: selectedSession.id,
         courseId: selectedSession.courseId,
         courseName: selectedCourse?.name || 'Curso',
@@ -152,16 +234,19 @@ export function RecordsPage() {
         studentsCount: studentsCountInput === '' ? undefined : Math.max(0, Number(studentsCountInput)),
         description: description.trim(),
         photos: photoDrafts,
-      });
+      };
+
+      const ok = editingRecordId
+        ? await updateDailyRecordInDb(editingRecordId, payload)
+        : await addDailyRecordToDb(payload);
       if (!ok) {
-        notify('error', 'No se pudo guardar en la base de datos.');
+        notify('error', editingRecordId ? 'No se pudo actualizar en la base de datos.' : 'No se pudo guardar en la base de datos.');
         return;
       }
 
-      setDescription('');
-      setPhotoDrafts([]);
-      notify('success', 'Registro guardado correctamente.');
-      if (paramSessionId) {
+      clearEditor();
+      notify('success', editingRecordId ? 'Registro actualizado correctamente.' : 'Registro guardado correctamente.');
+      if (paramSessionId && !editingRecordId) {
         window.setTimeout(() => navigate('/'), 350);
       }
     } catch (error) {
@@ -355,8 +440,17 @@ export function RecordsPage() {
             disabled={isSaving || !selectedSessionId}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-emerald-600 disabled:bg-emerald-300 text-white text-base font-semibold"
           >
-            <Save size={16} /> {isSaving ? 'Guardando...' : 'Guardar registro'}
+            <Save size={16} /> {isSaving ? 'Guardando...' : editingRecordId ? 'Actualizar registro' : 'Guardar registro'}
           </button>
+          {editingRecordId && (
+            <button
+              type="button"
+              onClick={clearEditor}
+              className="mt-2 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-base font-semibold"
+            >
+              <X size={16} /> Cancelar edicion
+            </button>
+          )}
         </div>
       </div>
 
@@ -407,17 +501,29 @@ export function RecordsPage() {
                   {new Date(record.createdAt).toLocaleString()} {record.startTime && record.endTime ? `| ${record.startTime} - ${record.endTime}` : ''}
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  void (async () => {
-                    const ok = await deleteDailyRecordFromDb(record.id);
-                    notify(ok ? 'success' : 'error', ok ? 'Registro eliminado.' : 'No se pudo eliminar en la base de datos.');
-                  })();
-                }}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-sm font-medium"
-              >
-                <Trash2 size={14} /> Borrar
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleEditRecord(record)}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 text-sm font-medium"
+                >
+                  <Edit2 size={14} /> Editar
+                </button>
+                <button
+                  onClick={() => {
+                    void (async () => {
+                      const ok = await deleteDailyRecordFromDb(record.id);
+                      if (ok && editingRecordId === record.id) {
+                        clearEditor();
+                      }
+                      notify(ok ? 'success' : 'error', ok ? 'Registro eliminado.' : 'No se pudo eliminar en la base de datos.');
+                    })();
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-sm font-medium"
+                >
+                  <Trash2 size={14} /> Borrar
+                </button>
+              </div>
             </div>
 
             {record.description && (
@@ -426,9 +532,14 @@ export function RecordsPage() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {record.photos.map((photo, idx) => (
-                <a key={idx} href={photo} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setPreviewImage(photo)}
+                  className="block rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700"
+                >
                   <img src={photo} alt={`registro-${record.id}-${idx + 1}`} className="w-full h-32 object-cover" />
-                </a>
+                </button>
               ))}
             </div>
 
@@ -438,6 +549,33 @@ export function RecordsPage() {
           </div>
         ))}
       </div>
+
+      {previewImage && (
+        <button
+          type="button"
+          onClick={() => setPreviewImage(null)}
+          className="fixed inset-0 z-[10050] bg-black/80 p-3 sm:p-6 flex items-center justify-center"
+        >
+          <div className="relative w-full max-w-4xl max-h-[92vh]">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewImage(null);
+              }}
+              className="absolute top-2 right-2 p-2 rounded-full bg-black/60 text-white z-10"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={previewImage}
+              alt="Vista previa"
+              className="w-full h-auto max-h-[90vh] object-contain rounded-xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </button>
+      )}
     </div>
   );
 }
