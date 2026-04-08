@@ -31,7 +31,7 @@ export interface ClassSession {
   classroomId: string;
   dayOfWeek: DayOfWeek;
   groupId?: string;
-  isActive?: boolean; // Controls if the session is active/visible in public view
+  isActive?: boolean;
 }
 
 export interface HistoryLog {
@@ -39,7 +39,7 @@ export interface HistoryLog {
   action: 'add' | 'edit' | 'delete' | 'toggle';
   courseName: string;
   description: string;
-  date: string; // ISO string
+  date: string;
 }
 
 export interface DailyClassRecord {
@@ -55,8 +55,8 @@ export interface DailyClassRecord {
   dayOfWeek?: DayOfWeek;
   studentsCount?: number;
   description?: string;
-  photos: string[]; // base64 data URLs for offline portability
-  createdAt: string; // ISO string
+  photos: string[];
+  createdAt: string;
 }
 
 interface AppContent {
@@ -65,10 +65,10 @@ interface AppContent {
   sessions: ClassSession[];
   professors: Professor[];
   historyLogs: HistoryLog[];
-  dailyRecords: DailyClassRecord[];
 }
 
 interface AppState extends AppContent {
+  dailyRecords: DailyClassRecord[];
   theme: 'light' | 'dark';
   language: 'es' | 'en';
   isAdmin: boolean;
@@ -79,15 +79,17 @@ interface AppState extends AppContent {
   setSessions: (sessions: ClassSession[]) => void;
   setProfessors: (professors: Professor[]) => void;
   setDailyRecords: (records: DailyClassRecord[]) => void;
-  addDailyRecord: (record: Omit<DailyClassRecord, 'id' | 'createdAt'>) => void;
-  deleteDailyRecord: (id: string) => void;
+
+  loadRecordsFromDb: (silent?: boolean) => Promise<void>;
+  addDailyRecordToDb: (record: Omit<DailyClassRecord, 'id' | 'createdAt'>) => Promise<boolean>;
+  deleteDailyRecordFromDb: (id: string) => Promise<boolean>;
+
   addHistoryLog: (log: Omit<HistoryLog, 'id' | 'date'>) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   setLanguage: (lang: 'es' | 'en') => void;
   setIsAdmin: (isAdmin: boolean) => void;
   setIsLoading: (isLoading: boolean) => void;
 
-  // Local DB Sync
   loadFromCloud: (silent?: boolean) => Promise<void>;
   saveToCloud: (silent?: boolean) => Promise<boolean>;
 }
@@ -103,7 +105,6 @@ const fallbackContent: AppContent = {
   sessions: defaultSessions,
   professors: defaultProfessors,
   historyLogs: [],
-  dailyRecords: [],
 };
 
 function normalizeContent(content: Partial<AppContent> | undefined): AppContent {
@@ -113,7 +114,6 @@ function normalizeContent(content: Partial<AppContent> | undefined): AppContent 
     sessions: Array.isArray(content?.sessions) ? content.sessions : fallbackContent.sessions,
     professors: Array.isArray(content?.professors) ? content.professors : fallbackContent.professors,
     historyLogs: Array.isArray(content?.historyLogs) ? content.historyLogs : fallbackContent.historyLogs,
-    dailyRecords: Array.isArray(content?.dailyRecords) ? content.dailyRecords : fallbackContent.dailyRecords,
   };
 }
 
@@ -121,6 +121,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       ...fallbackContent,
+      dailyRecords: [],
       theme: 'light',
       language: 'es',
       isAdmin: false,
@@ -131,21 +132,51 @@ export const useAppStore = create<AppState>()(
       setSessions: (sessions) => set({ sessions }),
       setProfessors: (professors) => set({ professors }),
       setDailyRecords: (dailyRecords) => set({ dailyRecords }),
-      addDailyRecord: (record) =>
-        set((state) => ({
-          dailyRecords: [
-            {
-              ...record,
-              id: Date.now().toString() + Math.random().toString(36).substring(7),
-              createdAt: new Date().toISOString(),
-            },
-            ...state.dailyRecords,
-          ],
-        })),
-      deleteDailyRecord: (id) =>
-        set((state) => ({
-          dailyRecords: state.dailyRecords.filter((record) => record.id !== id),
-        })),
+
+      loadRecordsFromDb: async (silent = true) => {
+        if (!silent) set({ isLoading: true });
+        try {
+          const response = await fetch('/api/records', { method: 'GET', cache: 'no-store' });
+          if (!response.ok) throw new Error(`Failed to load records: ${response.status}`);
+          const data = await response.json();
+          set({ dailyRecords: Array.isArray(data?.records) ? data.records : [] });
+        } catch (error) {
+          console.error('Error loading records from DB:', error);
+        } finally {
+          if (!silent) set({ isLoading: false });
+        }
+      },
+
+      addDailyRecordToDb: async (record) => {
+        try {
+          const response = await fetch('/api/records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record),
+          });
+          if (!response.ok) throw new Error(`Failed to create record: ${response.status}`);
+          await get().loadRecordsFromDb(true);
+          return true;
+        } catch (error) {
+          console.error('Error creating record in DB:', error);
+          return false;
+        }
+      },
+
+      deleteDailyRecordFromDb: async (id) => {
+        try {
+          const response = await fetch(`/api/records/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+          });
+          if (!response.ok) throw new Error(`Failed to delete record: ${response.status}`);
+          await get().loadRecordsFromDb(true);
+          return true;
+        } catch (error) {
+          console.error('Error deleting record from DB:', error);
+          return false;
+        }
+      },
+
       addHistoryLog: (log) =>
         set((state) => {
           const newLog: HistoryLog = {
@@ -153,7 +184,6 @@ export const useAppStore = create<AppState>()(
             id: Date.now().toString() + Math.random().toString(36).substring(7),
             date: new Date().toISOString(),
           };
-          // Keep only the last 10 logs
           const newLogs = [newLog, ...(state.historyLogs || [])].slice(0, 10);
           return { historyLogs: newLogs };
         }),
@@ -177,6 +207,7 @@ export const useAppStore = create<AppState>()(
           const data = await response.json();
           const normalized = normalizeContent(data?.content);
           set(normalized);
+          await get().loadRecordsFromDb(true);
         } catch (error) {
           console.error('Error loading from local DB:', error);
         } finally {
@@ -194,7 +225,6 @@ export const useAppStore = create<AppState>()(
             sessions: state.sessions,
             professors: state.professors,
             historyLogs: state.historyLogs,
-            dailyRecords: state.dailyRecords,
           };
 
           const response = await fetch('/api/data', {
@@ -223,13 +253,6 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         theme: state.theme,
         language: state.language,
-        classrooms: state.classrooms,
-        courses: state.courses,
-        sessions: state.sessions,
-        professors: state.professors,
-        historyLogs: state.historyLogs,
-        // Do not persist photo-heavy records to localStorage.
-        // They are persisted in SQLite via /api/data and can exceed browser quota on mobile.
       }),
     },
   ),

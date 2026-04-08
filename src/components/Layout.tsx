@@ -18,36 +18,10 @@ export function Layout() {
     }
   }, [theme]);
 
-  useEffect(() => {
-    const syncViewport = () => {
-      document.documentElement.style.setProperty('--app-vw', `${window.innerWidth}px`);
-      document.documentElement.style.setProperty('--app-vh', `${window.innerHeight}px`);
-    };
-
-    syncViewport();
-    const lateSync = window.setTimeout(syncViewport, 250);
-
-    const handleResize = () => {
-      syncViewport();
-      window.setTimeout(syncViewport, 120);
-    };
-
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-    window.visualViewport?.addEventListener('resize', handleResize);
-
-    return () => {
-      window.clearTimeout(lateSync);
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
-      window.visualViewport?.removeEventListener('resize', handleResize);
-    };
-  }, []);
-
   const isAdminPage = location.pathname === '/admin';
 
   return (
-    <div className="w-full min-h-[100dvh] bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans">
+    <div className="w-full min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans overflow-x-hidden">
       {/* Loading Bar */}
       {isLoading && (
         <div className="fixed top-0 left-0 right-0 h-1 bg-zinc-200 dark:bg-zinc-800 z-50 overflow-hidden">

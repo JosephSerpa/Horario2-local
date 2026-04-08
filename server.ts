@@ -21,6 +21,12 @@ interface BackupEntry {
   createdAt: string;
 }
 
+interface DailyRecordDb {
+  id: string;
+  payload: string;
+  created_at: string;
+}
+
 function ensureDataDirs() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.mkdirSync(BACKUPS_DIR, { recursive: true });
@@ -45,6 +51,14 @@ function createDatabase() {
     )
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_records (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
   const existing = db
     .prepare("SELECT id FROM app_state WHERE id = ?")
     .get(STATE_ID) as { id: string } | undefined;
@@ -57,6 +71,40 @@ function createDatabase() {
       VALUES (?, ?, datetime('now'))
     `,
     ).run(STATE_ID, JSON.stringify(defaults));
+  }
+
+  // One-time migration from legacy JSON state dailyRecords -> daily_records table.
+  const recordsCount = db
+    .prepare("SELECT COUNT(1) as count FROM daily_records")
+    .get() as { count: number };
+
+  if (recordsCount.count === 0) {
+    const stateRow = db
+      .prepare("SELECT content FROM app_state WHERE id = ?")
+      .get(STATE_ID) as { content: string } | undefined;
+
+    if (stateRow) {
+      try {
+        const parsed = JSON.parse(stateRow.content);
+        const legacy = Array.isArray(parsed?.dailyRecords) ? parsed.dailyRecords : [];
+
+        if (legacy.length > 0) {
+          const insertStmt = db.prepare(
+            "INSERT OR REPLACE INTO daily_records (id, payload, created_at) VALUES (?, ?, ?)",
+          );
+          const tx = db.transaction((rows: any[]) => {
+            rows.forEach((record) => {
+              const id = String(record?.id || Date.now().toString() + Math.random().toString(36).slice(2));
+              const createdAt = String(record?.createdAt || new Date().toISOString());
+              insertStmt.run(id, JSON.stringify({ ...record, id, createdAt }), createdAt);
+            });
+          });
+          tx(legacy);
+        }
+      } catch (error) {
+        console.error("Legacy dailyRecords migration failed:", error);
+      }
+    }
   }
 
   return db;
@@ -110,6 +158,22 @@ function isSafeBackupFilename(name: string) {
   return /^backup-\d{8}-\d{6}\.db$/.test(name);
 }
 
+function readDailyRecords(db: Database.Database) {
+  const rows = db
+    .prepare("SELECT id, payload, created_at FROM daily_records ORDER BY datetime(created_at) DESC")
+    .all() as DailyRecordDb[];
+
+  return rows
+    .map((row) => {
+      try {
+        return JSON.parse(row.payload);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -117,19 +181,15 @@ async function startServer() {
   let backupInProgress = false;
 
   const createBackup = async (reason: "auto" | "manual" | "pre-restore" = "auto") => {
-    if (backupInProgress) {
-      return null;
-    }
+    if (backupInProgress) return null;
 
     backupInProgress = true;
     try {
       ensureDataDirs();
       const filename = `backup-${getTimestamp()}.db`;
       const fullPath = path.join(BACKUPS_DIR, filename);
-
       await db.backup(fullPath);
       pruneOldBackups();
-
       console.log(`Backup created (${reason}): ${filename}`);
       return filename;
     } catch (error) {
@@ -140,7 +200,7 @@ async function startServer() {
     }
   };
 
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "80mb" }));
 
   app.get("/api/data", (_req, res) => {
     try {
@@ -154,6 +214,11 @@ async function startServer() {
       }
 
       const content = JSON.parse(row.content);
+      // Source of truth for dailyRecords is daily_records table.
+      if (content && typeof content === "object" && "dailyRecords" in content) {
+        delete content.dailyRecords;
+      }
+
       return res.json({ content, updatedAt: row.updated_at });
     } catch (error) {
       console.error("Error loading data:", error);
@@ -166,6 +231,11 @@ async function startServer() {
       const content = req.body;
       if (!content || typeof content !== "object") {
         return res.status(400).json({ error: "Invalid payload" });
+      }
+
+      // Ignore dailyRecords in monolithic updates to avoid accidental overwrite.
+      if ("dailyRecords" in content) {
+        delete (content as Record<string, unknown>).dailyRecords;
       }
 
       db.prepare(
@@ -181,6 +251,50 @@ async function startServer() {
     } catch (error) {
       console.error("Error saving data:", error);
       return res.status(500).json({ error: "Failed to save data" });
+    }
+  });
+
+  app.get("/api/records", (_req, res) => {
+    try {
+      const records = readDailyRecords(db);
+      return res.json({ records });
+    } catch (error) {
+      console.error("Error loading daily records:", error);
+      return res.status(500).json({ error: "Failed to load records" });
+    }
+  });
+
+  app.post("/api/records", (req, res) => {
+    try {
+      const incoming = req.body;
+      if (!incoming || typeof incoming !== "object") {
+        return res.status(400).json({ error: "Invalid payload" });
+      }
+
+      const id = Date.now().toString() + Math.random().toString(36).substring(2);
+      const createdAt = new Date().toISOString();
+      const record = { ...(incoming as Record<string, unknown>), id, createdAt };
+
+      db.prepare("INSERT INTO daily_records (id, payload, created_at) VALUES (?, ?, ?)")
+        .run(id, JSON.stringify(record), createdAt);
+
+      return res.json({ success: true, record });
+    } catch (error) {
+      console.error("Error creating daily record:", error);
+      return res.status(500).json({ error: "Failed to create record" });
+    }
+  });
+
+  app.delete("/api/records/:id", (req, res) => {
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!id) return res.status(400).json({ error: "Invalid id" });
+
+      db.prepare("DELETE FROM daily_records WHERE id = ?").run(id);
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting daily record:", error);
+      return res.status(500).json({ error: "Failed to delete record" });
     }
   });
 
@@ -201,9 +315,7 @@ async function startServer() {
   app.post("/api/backups/create", async (_req, res) => {
     try {
       const filename = await createBackup("manual");
-      if (!filename) {
-        return res.status(500).json({ error: "Backup was not created" });
-      }
+      if (!filename) return res.status(500).json({ error: "Backup was not created" });
       return res.json({ success: true, filename });
     } catch (error) {
       console.error("Error creating manual backup:", error);
@@ -224,7 +336,6 @@ async function startServer() {
       }
 
       await createBackup("pre-restore");
-
       db.close();
       fs.copyFileSync(targetPath, DB_PATH);
       db = createDatabase();
@@ -249,7 +360,6 @@ async function startServer() {
   } else {
     const distPath = path.resolve(__dirname, "dist");
     app.use(express.static(distPath));
-    // SPA fallback: allow refresh/direct access on routes like /admin, /ahora, /registros
     app.get(/^(?!\/api).*/, (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });

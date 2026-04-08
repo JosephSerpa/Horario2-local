@@ -24,9 +24,9 @@ export function RecordsPage() {
     professors,
     isAdmin,
     dailyRecords,
-    addDailyRecord,
-    deleteDailyRecord,
-    saveToCloud,
+    loadRecordsFromDb,
+    addDailyRecordToDb,
+    deleteDailyRecordFromDb,
   } = useAppStore();
 
   const paramSessionId = searchParams.get('sessionId') || '';
@@ -75,6 +75,12 @@ export function RecordsPage() {
     }
   }, [isAdmin, navigate]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      void loadRecordsFromDb(true);
+    }
+  }, [isAdmin, loadRecordsFromDb]);
+
   const selectedSession = useMemo(
     () => sessions.find((s) => s.id === selectedSessionId),
     [sessions, selectedSessionId],
@@ -100,6 +106,11 @@ export function RecordsPage() {
   const selectedClassroom = selectedSession
     ? classrooms.find((c) => c.id === selectedSession.classroomId)
     : undefined;
+
+  const compactText = (value: string, max = 28) => {
+    if (!value) return '';
+    return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  };
 
   const handlePhotoSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
@@ -128,7 +139,7 @@ export function RecordsPage() {
 
     setIsSaving(true);
     try {
-      addDailyRecord({
+      const ok = await addDailyRecordToDb({
         sessionId: selectedSession.id,
         courseId: selectedSession.courseId,
         courseName: selectedCourse?.name || 'Curso',
@@ -142,9 +153,8 @@ export function RecordsPage() {
         description: description.trim(),
         photos: photoDrafts,
       });
-      const saved = await saveToCloud(true);
-      if (!saved) {
-        notify('error', 'Se guardo localmente, pero no se pudo sincronizar en la base.');
+      if (!ok) {
+        notify('error', 'No se pudo guardar en la base de datos.');
         return;
       }
 
@@ -208,8 +218,8 @@ export function RecordsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-8 space-y-5 sm:space-y-8">
-      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 w-[90vw] sm:w-[380px] pointer-events-none">
+    <div className="w-full max-w-none lg:max-w-5xl mx-auto px-3 sm:px-5 lg:px-6 py-4 sm:py-6 space-y-5 sm:space-y-7 overflow-x-hidden">
+      <div className="fixed top-3 right-3 z-[9999] flex flex-col gap-2 w-[94vw] sm:w-[380px] pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -225,33 +235,33 @@ export function RecordsPage() {
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <button
           onClick={() => navigate('/')}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm font-medium"
+          className="inline-flex items-center justify-center sm:justify-start gap-2 px-3 py-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm sm:text-base font-medium w-full sm:w-auto"
         >
           <ArrowLeft size={16} /> Volver al horario
         </button>
         <button
           onClick={exportRecordsToExcel}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+          className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-600 text-white text-sm sm:text-base font-medium w-full sm:w-auto"
         >
           <Download size={16} /> Exportar Excel
         </button>
       </div>
 
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-6 space-y-4">
-        <h1 className="text-2xl sm:text-3xl font-bold">Registro Diario de Salones</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-6 space-y-5">
+        <h1 className="text-[1.55rem] leading-tight sm:text-3xl font-bold">Registro Diario de Salones</h1>
+        <p className="text-[0.95rem] sm:text-base text-zinc-600 dark:text-zinc-400 break-words">
           Toca un horario, toma fotos desde tu celular y guarda la evidencia para revisarla despues.
         </p>
 
-        <div className="space-y-3">
-          <label className="text-sm font-semibold">Horario a registrar</label>
+        <div className="space-y-2.5">
+          <label className="text-[0.95rem] sm:text-base font-semibold">Horario a registrar</label>
           <select
             value={selectedSessionId}
             onChange={(e) => setSelectedSessionId(e.target.value)}
-            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+            className="w-full max-w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3.5 text-base overflow-hidden text-ellipsis"
           >
             {availableSessions.length === 0 && <option value="">No hay horarios activos para hoy</option>}
             {availableSessions.map((session) => {
@@ -259,7 +269,7 @@ export function RecordsPage() {
               const classroom = classrooms.find((c) => c.id === session.classroomId);
               return (
                 <option key={session.id} value={session.id}>
-                  {session.startTime}-{session.endTime} | {classroom?.name || 'Salon'} | {course?.name || 'Curso'}
+                  {session.startTime}-{session.endTime} | {compactText(classroom?.name || 'Salon', 18)} | {compactText(course?.name || 'Curso', 24)}
                 </option>
               );
             })}
@@ -267,48 +277,48 @@ export function RecordsPage() {
         </div>
 
         {selectedSession && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-sm sm:text-base">
             <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
               <div className="text-zinc-500">Curso</div>
-              <div className="font-semibold">{selectedCourse?.name || 'Curso'}</div>
+              <div className="font-semibold break-words">{selectedCourse?.name || 'Curso'}</div>
             </div>
             <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
               <div className="text-zinc-500">Profesor</div>
-              <div className="font-semibold">{resolveProfessorName(selectedSession.professor)}</div>
+              <div className="font-semibold break-words">{resolveProfessorName(selectedSession.professor)}</div>
             </div>
             <div className="rounded-xl bg-zinc-50 dark:bg-zinc-800/60 p-3">
               <div className="text-zinc-500">Salon</div>
-              <div className="font-semibold">{selectedClassroom?.name || 'Salon'}</div>
+              <div className="font-semibold break-words">{selectedClassroom?.name || 'Salon'}</div>
             </div>
           </div>
         )}
 
         <div className="space-y-2">
-          <label className="text-sm font-semibold">Numero de alumnos (registro actual)</label>
+          <label className="text-[0.95rem] sm:text-base font-semibold">Numero de alumnos (registro actual)</label>
           <input
             type="number"
             min={0}
             value={studentsCountInput}
             onChange={(e) => setStudentsCountInput(e.target.value)}
-            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3.5 text-base"
           />
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-semibold">Descripcion (opcional)</label>
+          <label className="text-[0.95rem] sm:text-base font-semibold">Descripcion (opcional)</label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             placeholder="Ejemplo: aula limpia, proyector operativo, observaciones..."
-            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-sm"
+            className="w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3.5 text-base"
           />
         </div>
 
         <div className="space-y-4 pt-2">
           <div className="flex flex-col gap-3 sm:gap-2">
-            <label className="text-sm font-semibold">Fotos del estado actual</label>
-            <label className="inline-flex w-fit items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 text-white text-sm font-semibold cursor-pointer">
+            <label className="text-[0.95rem] sm:text-base font-semibold">Fotos del estado actual</label>
+            <label className="inline-flex w-full sm:w-fit items-center justify-center gap-2 px-5 py-3.5 rounded-2xl bg-indigo-600 text-white text-base font-semibold cursor-pointer">
               <ImagePlus size={16} /> Tomar / agregar fotos
               <input
                 type="file"
@@ -325,7 +335,7 @@ export function RecordsPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {photoDrafts.map((photo, idx) => (
                 <div key={idx} className="relative rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
-                  <img src={photo} alt={`foto-${idx + 1}`} className="w-full h-32 object-cover" />
+                  <img src={photo} alt={`foto-${idx + 1}`} className="w-full h-36 object-cover" />
                   <button
                     type="button"
                     onClick={() => removeDraftPhoto(idx)}
@@ -343,7 +353,7 @@ export function RecordsPage() {
           <button
             onClick={handleSaveRecord}
             disabled={isSaving || !selectedSessionId}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-emerald-600 disabled:bg-emerald-300 text-white font-semibold"
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl bg-emerald-600 disabled:bg-emerald-300 text-white text-base font-semibold"
           >
             <Save size={16} /> {isSaving ? 'Guardando...' : 'Guardar registro'}
           </button>
@@ -351,22 +361,22 @@ export function RecordsPage() {
       </div>
 
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4 sm:p-6 space-y-4">
-        <div className="flex items-center gap-2 font-semibold">
+        <div className="flex items-center gap-2 text-lg font-semibold">
           <Filter size={16} /> Filtros
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <select value={filterClassroom} onChange={(e) => setFilterClassroom(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+          <select value={filterClassroom} onChange={(e) => setFilterClassroom(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base">
             <option value="all">Todos los salones</option>
             {classrooms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select value={filterProfessor} onChange={(e) => setFilterProfessor(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+          <select value={filterProfessor} onChange={(e) => setFilterProfessor(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base">
             <option value="all">Todos los profesores</option>
             {Array.from(new Set(dailyRecords.map((r) => r.professor))).map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm">
+          <select value={filterCourse} onChange={(e) => setFilterCourse(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base">
             <option value="all">Todos los cursos</option>
             {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -374,7 +384,7 @@ export function RecordsPage() {
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-xl font-bold">Historial de Registros ({sortedRecords.length})</h2>
+        <h2 className="text-2xl font-bold">Historial de Registros ({sortedRecords.length})</h2>
 
         {sortedRecords.length === 0 && (
           <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 text-sm text-zinc-500">
@@ -386,42 +396,43 @@ export function RecordsPage() {
           <div key={record.id} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="font-bold text-base sm:text-lg">{record.courseName}</div>
-                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                <div className="font-bold text-lg sm:text-xl leading-tight">{record.courseName}</div>
+                <div className="text-base text-zinc-600 dark:text-zinc-400">
                   {record.classroomName} | {record.professor}
                 </div>
-                <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                <div className="text-base text-zinc-600 dark:text-zinc-400">
                   Alumnos: {record.studentsCount ?? '-'}
                 </div>
-                <div className="text-xs text-zinc-500 mt-1">
+                <div className="text-sm text-zinc-500 mt-1">
                   {new Date(record.createdAt).toLocaleString()} {record.startTime && record.endTime ? `| ${record.startTime} - ${record.endTime}` : ''}
                 </div>
               </div>
               <button
                 onClick={() => {
-                  deleteDailyRecord(record.id);
-                  void saveToCloud(true);
-                  notify('success', 'Registro eliminado.');
+                  void (async () => {
+                    const ok = await deleteDailyRecordFromDb(record.id);
+                    notify(ok ? 'success' : 'error', ok ? 'Registro eliminado.' : 'No se pudo eliminar en la base de datos.');
+                  })();
                 }}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-sm"
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-sm font-medium"
               >
                 <Trash2 size={14} /> Borrar
               </button>
             </div>
 
             {record.description && (
-              <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{record.description}</p>
+              <p className="text-base leading-relaxed text-zinc-700 dark:text-zinc-300">{record.description}</p>
             )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {record.photos.map((photo, idx) => (
                 <a key={idx} href={photo} target="_blank" rel="noreferrer" className="block rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700">
-                  <img src={photo} alt={`registro-${record.id}-${idx + 1}`} className="w-full h-28 object-cover" />
+                  <img src={photo} alt={`registro-${record.id}-${idx + 1}`} className="w-full h-32 object-cover" />
                 </a>
               ))}
             </div>
 
-            <div className="text-xs text-zinc-500 flex items-center gap-1">
+            <div className="text-sm text-zinc-500 flex items-center gap-1">
               <Camera size={12} /> {record.photos.length} foto(s)
             </div>
           </div>

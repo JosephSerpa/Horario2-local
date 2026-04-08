@@ -137,19 +137,19 @@ export function SchedulePage() {
   }, [activeSessions, currentTime, isToday]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 overflow-x-hidden">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         className="mb-8"
       >
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <h1 className="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 font-sans">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-5 sm:mb-6">
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 font-sans">
             {t.schedule}
           </h1>
-          <div className="flex items-center gap-3 no-print">
+          <div className="flex flex-col w-full sm:w-auto sm:items-center gap-2 sm:gap-3 no-print">
             {nextEvent && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl text-amber-700 dark:text-amber-400">
+              <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl text-amber-700 dark:text-amber-400 w-full sm:w-auto justify-center sm:justify-start">
                 <Clock size={14} className="animate-pulse" />
                 <span className="text-[10px] font-bold uppercase tracking-wider">
                   Cambio en: <span className="text-xs font-black ml-1">
@@ -160,7 +160,7 @@ export function SchedulePage() {
             )}
             <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors font-medium"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors font-medium w-full sm:w-auto"
             >
               <Printer size={18} />
               Imprimir
@@ -190,8 +190,8 @@ export function SchedulePage() {
 
       {/* Schedule Grid */}
       <div className="bg-white dark:bg-zinc-900 rounded-3xl shadow-sm border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <div className="min-w-[800px]">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <div className="min-w-[760px] sm:min-w-[800px]">
             {/* Header Row */}
             <div className="grid grid-cols-[80px_repeat(6,1fr)] border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/50">
               <div className="p-4 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">

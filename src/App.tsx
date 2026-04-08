@@ -21,7 +21,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="fixed top-2 right-4 z-[9999] pointer-events-none opacity-40 text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 select-none tracking-wide">
+      <div className="hidden sm:block fixed top-2 right-4 z-[9999] pointer-events-none opacity-40 text-[10px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 select-none tracking-wide">
         Desarrollado y publicado por: Joseph Jair Serpa Pillaca
       </div>
       <Routes>
