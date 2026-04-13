@@ -10,3 +10,6 @@ coverage/
 # SQLite runtime sidecar files
 *.db-wal
 *.db-shm
+
+# Backups
+data/backups/
