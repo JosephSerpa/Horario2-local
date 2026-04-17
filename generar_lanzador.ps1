@@ -9,6 +9,7 @@ namespace ServerLauncher {
     public class MainForm : Form {
         private Button toggleButton;
         private Button buildButton;
+        private CheckBox prodModeCheckBox;
         private Label statusLabel;
         private Label linkLabel;
         private Process serverProcess;
@@ -18,7 +19,7 @@ namespace ServerLauncher {
 
         public MainForm() {
             this.Text = "Lanzador de App";
-            this.Size = new Size(460, 460);
+            this.Size = new Size(460, 480);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -40,16 +41,16 @@ namespace ServerLauncher {
 
             statusLabel = new Label();
             statusLabel.Text = "Estado: Detenido";
-            statusLabel.Location = new Point(20, 80);
+            statusLabel.Location = new Point(20, 75);
             statusLabel.AutoSize = true;
-            statusLabel.Font = new Font("Segoe UI", 12, FontStyle.Bold);
+            statusLabel.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             statusLabel.ForeColor = Color.FromArgb(50, 50, 50);
 
             linkLabel = new Label();
             linkLabel.Text = "Esperando iniciar...";
-            linkLabel.Location = new Point(20, 112);
+            linkLabel.Location = new Point(20, 102);
             linkLabel.AutoSize = true;
-            linkLabel.Font = new Font("Segoe UI", 11, FontStyle.Underline);
+            linkLabel.Font = new Font("Segoe UI", 10, FontStyle.Underline);
             linkLabel.ForeColor = Color.Gray;
             linkLabel.Cursor = Cursors.Hand;
             linkLabel.Click += (s, e) => {
@@ -58,9 +59,17 @@ namespace ServerLauncher {
                 }
             };
 
+            prodModeCheckBox = new CheckBox();
+            prodModeCheckBox.Text = "Modo Produccion (usar archivos compilados)";
+            prodModeCheckBox.Location = new Point(20, 130);
+            prodModeCheckBox.AutoSize = true;
+            prodModeCheckBox.Checked = true;
+            prodModeCheckBox.Font = new Font("Segoe UI", 9, FontStyle.Regular);
+            prodModeCheckBox.ForeColor = Color.FromArgb(70, 70, 70);
+
             toggleButton = new Button();
             toggleButton.Text = "INICIAR SERVIDOR";
-            toggleButton.Location = new Point(20, 150);
+            toggleButton.Location = new Point(20, 160);
             toggleButton.Size = new Size(400, 50);
             toggleButton.Font = new Font("Segoe UI", 12, FontStyle.Bold);
             toggleButton.BackColor = Color.FromArgb(46, 204, 113);
@@ -72,8 +81,8 @@ namespace ServerLauncher {
 
             buildButton = new Button();
             buildButton.Text = "RECONSTRUIR INTERFAZ (SOLO SI HAY CAMBIOS)";
-            buildButton.Location = new Point(20, 210);
-            buildButton.Size = new Size(400, 40);
+            buildButton.Location = new Point(20, 220);
+            buildButton.Size = new Size(400, 35);
             buildButton.Font = new Font("Segoe UI", 9, FontStyle.Bold);
             buildButton.BackColor = Color.FromArgb(236, 240, 241);
             buildButton.ForeColor = Color.FromArgb(50, 50, 50);
@@ -84,12 +93,12 @@ namespace ServerLauncher {
             buildButton.Click += BuildButton_Click;
 
             logBox = new TextBox();
-            logBox.Location = new Point(20, 265);
-            logBox.Size = new Size(400, 130);
+            logBox.Location = new Point(20, 270);
+            logBox.Size = new Size(400, 150);
             logBox.Multiline = true;
             logBox.ReadOnly = true;
             logBox.ScrollBars = ScrollBars.Vertical;
-            logBox.Font = new Font("Consolas", 9);
+            logBox.Font = new Font("Consolas", 8);
             logBox.BackColor = Color.FromArgb(245, 245, 245);
             logBox.ForeColor = Color.FromArgb(50, 50, 50);
             logBox.BorderStyle = BorderStyle.FixedSingle;
@@ -97,6 +106,7 @@ namespace ServerLauncher {
             this.Controls.Add(headerPanel);
             this.Controls.Add(statusLabel);
             this.Controls.Add(linkLabel);
+            this.Controls.Add(prodModeCheckBox);
             this.Controls.Add(toggleButton);
             this.Controls.Add(buildButton);
             this.Controls.Add(logBox);
@@ -124,6 +134,7 @@ namespace ServerLauncher {
                 AppendLog("Por favor espera...");
                 buildButton.Enabled = false;
                 toggleButton.Enabled = false;
+                prodModeCheckBox.Enabled = false;
 
                 Process buildProcess = new Process();
                 buildProcess.StartInfo.FileName = "cmd.exe";
@@ -147,6 +158,7 @@ namespace ServerLauncher {
                         this.Invoke((MethodInvoker)delegate {
                             buildButton.Enabled = true;
                             toggleButton.Enabled = true;
+                            prodModeCheckBox.Enabled = true;
                         });
                     }
                 };
@@ -159,24 +171,30 @@ namespace ServerLauncher {
                 MessageBox.Show("Error al compilar: " + ex.Message);
                 buildButton.Enabled = true;
                 toggleButton.Enabled = true;
+                prodModeCheckBox.Enabled = true;
             }
         }
 
         private void StartServer() {
             try {
+                string mode = prodModeCheckBox.Checked ? "production" : "development";
+                string args = prodModeCheckBox.Checked 
+                    ? "/c set NODE_ENV=production && npx tsx server.ts" 
+                    : "/c set NODE_ENV=development && npx tsx server.ts";
+
                 serverProcess = new Process();
                 serverProcess.StartInfo.FileName = "cmd.exe";
-                serverProcess.StartInfo.Arguments = "/c set NODE_ENV=production && npx tsx server.ts";
+                serverProcess.StartInfo.Arguments = args;
                 serverProcess.StartInfo.UseShellExecute = false;
                 serverProcess.StartInfo.RedirectStandardOutput = true;
                 serverProcess.StartInfo.RedirectStandardError = true;
                 serverProcess.StartInfo.CreateNoWindow = true;
 
-                serverProcess.OutputDataReceived += (s, args) => {
-                    if (args.Data != null) {
-                        AppendLog(args.Data);
-                        if (args.Data.Contains("http://")) {
-                            var match = Regex.Match(args.Data, @"http://[^\s]+");
+                serverProcess.OutputDataReceived += (s, argsOutput) => {
+                    if (argsOutput.Data != null) {
+                        AppendLog(argsOutput.Data);
+                        if (argsOutput.Data.Contains("http://")) {
+                            var match = Regex.Match(argsOutput.Data, @"http://[^\s]+");
                             if (match.Success) {
                                 UpdateLink(match.Value);
                             }
@@ -184,23 +202,24 @@ namespace ServerLauncher {
                     }
                 };
                 
-                serverProcess.ErrorDataReceived += (s, args) => {
-                    if (args.Data != null) AppendLog("ERROR: " + args.Data);
+                serverProcess.ErrorDataReceived += (s, argsOutput) => {
+                    if (argsOutput.Data != null) AppendLog("ERROR: " + argsOutput.Data);
                 };
 
                 serverProcess.Start();
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
 
-                statusLabel.Text = "Estado: Corriendo";
+                statusLabel.Text = "Estado: Corriendo (" + mode + ")";
                 statusLabel.ForeColor = Color.FromArgb(39, 174, 96);
                 
                 toggleButton.Text = "DETENER SERVIDOR";
                 toggleButton.BackColor = Color.FromArgb(231, 76, 60);
                 buildButton.Enabled = false;
+                prodModeCheckBox.Enabled = false;
                 
                 logBox.Clear();
-                AppendLog("Levantando el servidor...");
+                AppendLog("Levantando el servidor en modo " + mode + "...");
             } catch (Exception ex) {
                 MessageBox.Show("Error: " + ex.Message);
             }
@@ -247,6 +266,7 @@ namespace ServerLauncher {
                     toggleButton.BackColor = Color.FromArgb(46, 204, 113);
                     
                     buildButton.Enabled = true;
+                    prodModeCheckBox.Enabled = true;
                     
                     linkLabel.Text = "Esperando inicio...";
                     linkLabel.ForeColor = Color.Gray;
@@ -260,10 +280,11 @@ namespace ServerLauncher {
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new MainForm());
         }
+
     }
 }
 "@
 
 # Compilar el código usando ASCII plano!
-Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly "LanzadorHorario.exe" -OutputType WindowsApplication -ReferencedAssemblies "System.Windows.Forms", "System.Drawing"
+Add-Type -TypeDefinition $source -Language CSharp -OutputAssembly "$PSScriptRoot\LanzadorHorario.exe" -OutputType WindowsApplication -ReferencedAssemblies "System.Windows.Forms", "System.Drawing"
 Write-Host "Ejecutable 'LanzadorHorario.exe' compilado exitosamente sin acentos."
