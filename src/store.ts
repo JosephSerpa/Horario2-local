@@ -7,6 +7,7 @@ export type DayOfWeek = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Lunes, 6 = Domingo
 export interface Classroom {
   id: string;
   name: string;
+  pcCount?: number;
 }
 
 export interface Professor {
@@ -72,6 +73,7 @@ interface AppState extends AppContent {
   theme: 'light' | 'dark';
   language: 'es' | 'en';
   isAdmin: boolean;
+  csrfToken: string;
   isLoading: boolean;
 
   setClassrooms: (classrooms: Classroom[]) => void;
@@ -89,6 +91,9 @@ interface AppState extends AppContent {
   setTheme: (theme: 'light' | 'dark') => void;
   setLanguage: (lang: 'es' | 'en') => void;
   setIsAdmin: (isAdmin: boolean) => void;
+  loginAdmin: (username: string, password: string) => Promise<boolean>;
+  refreshAdminSession: () => Promise<boolean>;
+  logoutAdmin: () => Promise<void>;
   setIsLoading: (isLoading: boolean) => void;
 
   loadFromCloud: (silent?: boolean) => Promise<void>;
@@ -126,6 +131,7 @@ export const useAppStore = create<AppState>()(
       theme: 'light',
       language: 'es',
       isAdmin: false,
+      csrfToken: '',
       isLoading: false,
 
       setClassrooms: (classrooms) => set({ classrooms }),
@@ -138,6 +144,10 @@ export const useAppStore = create<AppState>()(
         if (!silent) set({ isLoading: true });
         try {
           const response = await fetch('/api/records', { method: 'GET', cache: 'no-store' });
+          if (response.status === 401) {
+            set({ isAdmin: false, csrfToken: '' });
+            return;
+          }
           if (!response.ok) throw new Error(`Failed to load records: ${response.status}`);
           const data = await response.json();
           set({ dailyRecords: Array.isArray(data?.records) ? data.records : [] });
@@ -150,11 +160,19 @@ export const useAppStore = create<AppState>()(
 
       addDailyRecordToDb: async (record) => {
         try {
+          const csrf = get().csrfToken;
           const response = await fetch('/api/records', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrf ? { 'x-csrf-token': csrf } : {}),
+            },
             body: JSON.stringify(record),
           });
+          if (response.status === 401) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
           if (!response.ok) throw new Error(`Failed to create record: ${response.status}`);
           await get().loadRecordsFromDb(true);
           return true;
@@ -166,11 +184,19 @@ export const useAppStore = create<AppState>()(
 
       updateDailyRecordInDb: async (id, record) => {
         try {
+          const csrf = get().csrfToken;
           const response = await fetch(`/api/records/${encodeURIComponent(id)}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(csrf ? { 'x-csrf-token': csrf } : {}),
+            },
             body: JSON.stringify(record),
           });
+          if (response.status === 401) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
           if (!response.ok) throw new Error(`Failed to update record: ${response.status}`);
           await get().loadRecordsFromDb(true);
           return true;
@@ -182,9 +208,15 @@ export const useAppStore = create<AppState>()(
 
       deleteDailyRecordFromDb: async (id) => {
         try {
+          const csrf = get().csrfToken;
           const response = await fetch(`/api/records/${encodeURIComponent(id)}`, {
             method: 'DELETE',
+            headers: csrf ? { 'x-csrf-token': csrf } : undefined,
           });
+          if (response.status === 401) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
           if (!response.ok) throw new Error(`Failed to delete record: ${response.status}`);
           await get().loadRecordsFromDb(true);
           return true;
@@ -207,6 +239,63 @@ export const useAppStore = create<AppState>()(
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setIsAdmin: (isAdmin) => set({ isAdmin }),
+      loginAdmin: async (username, password) => {
+        try {
+          const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          });
+          if (!response.ok) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
+          const data = await response.json();
+          set({
+            isAdmin: true,
+            csrfToken: typeof data?.csrfToken === 'string' ? data.csrfToken : '',
+          });
+          return true;
+        } catch (error) {
+          console.error('Error logging in:', error);
+          set({ isAdmin: false, csrfToken: '' });
+          return false;
+        }
+      },
+      refreshAdminSession: async () => {
+        try {
+          const response = await fetch('/api/auth/session', {
+            method: 'GET',
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
+          const data = await response.json();
+          const isAdmin = data?.isAdmin === true;
+          const csrfToken = typeof data?.csrfToken === 'string' ? data.csrfToken : '';
+          set({ isAdmin, csrfToken: isAdmin ? csrfToken : '' });
+          return isAdmin;
+        } catch (error) {
+          console.error('Error checking session:', error);
+          set({ isAdmin: false, csrfToken: '' });
+          return false;
+        }
+      },
+      logoutAdmin: async () => {
+        try {
+          const csrf = get().csrfToken;
+          await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: csrf ? { 'x-csrf-token': csrf } : undefined,
+          });
+        } catch (error) {
+          console.error('Error logging out:', error);
+        } finally {
+          set({ isAdmin: false, csrfToken: '' });
+        }
+      },
       setIsLoading: (isLoading) => set({ isLoading }),
 
       loadFromCloud: async (silent = false) => {
@@ -236,6 +325,7 @@ export const useAppStore = create<AppState>()(
         if (!silent) set({ isLoading: true });
         try {
           const state = get();
+          const csrf = state.csrfToken;
           const content: AppContent = {
             classrooms: state.classrooms,
             courses: state.courses,
@@ -248,10 +338,15 @@ export const useAppStore = create<AppState>()(
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
+              ...(csrf ? { 'x-csrf-token': csrf } : {}),
             },
             body: JSON.stringify(content),
           });
 
+          if (response.status === 401) {
+            set({ isAdmin: false, csrfToken: '' });
+            return false;
+          }
           if (!response.ok) {
             throw new Error(`Failed to save data: ${response.status}`);
           }

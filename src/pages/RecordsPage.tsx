@@ -84,6 +84,10 @@ export function RecordsPage() {
   const [filterClassroom, setFilterClassroom] = useState('all');
   const [filterProfessor, setFilterProfessor] = useState('all');
   const [filterCourse, setFilterCourse] = useState('all');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const notify = (type: 'success' | 'error', message: string) => {
     const id = Date.now().toString() + Math.random().toString(36).substring(7);
@@ -261,13 +265,59 @@ export function RecordsPage() {
       if (filterClassroom !== 'all' && record.classroomId !== filterClassroom) return false;
       if (filterProfessor !== 'all' && record.professor !== filterProfessor) return false;
       if (filterCourse !== 'all' && record.courseId !== filterCourse) return false;
+      const createdAt = new Date(record.createdAt);
+      if (Number.isNaN(createdAt.getTime())) return false;
+      const createdDate = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}-${String(createdAt.getDate()).padStart(2, '0')}`;
+      if (filterDateFrom && createdDate < filterDateFrom) return false;
+      if (filterDateTo && createdDate > filterDateTo) return false;
       return true;
     });
-  }, [dailyRecords, filterClassroom, filterProfessor, filterCourse]);
+  }, [dailyRecords, filterClassroom, filterProfessor, filterCourse, filterDateFrom, filterDateTo]);
 
   const sortedRecords = useMemo(() => {
     return [...filteredRecords].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [filteredRecords]);
+
+  const classroomAverages = useMemo(() => {
+    const groups = new Map<string, { classroomName: string; totalStudents: number; countWithStudents: number; totalRecords: number }>();
+
+    filteredRecords.forEach((record) => {
+      const key = record.classroomId || record.classroomName;
+      const existing = groups.get(key) || {
+        classroomName: record.classroomName || 'Salon',
+        totalStudents: 0,
+        countWithStudents: 0,
+        totalRecords: 0,
+      };
+
+      existing.totalRecords += 1;
+      if (typeof record.studentsCount === 'number' && Number.isFinite(record.studentsCount)) {
+        existing.totalStudents += record.studentsCount;
+        existing.countWithStudents += 1;
+      }
+      groups.set(key, existing);
+    });
+
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averageStudents: item.countWithStudents > 0
+          ? item.totalStudents / item.countWithStudents
+          : null,
+      }))
+      .sort((a, b) => a.classroomName.localeCompare(b.classroomName));
+  }, [filteredRecords]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterClassroom, filterProfessor, filterCourse, filterDateFrom, filterDateTo, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedRecords = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return sortedRecords.slice(start, start + pageSize);
+  }, [sortedRecords, safePage, pageSize]);
 
   const exportRecordsToExcel = async () => {
     const workbook = new ExcelJS.Workbook();
@@ -459,7 +509,7 @@ export function RecordsPage() {
           <Filter size={16} /> Filtros
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <select value={filterClassroom} onChange={(e) => setFilterClassroom(e.target.value)} className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base">
             <option value="all">Todos los salones</option>
             {classrooms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -474,11 +524,82 @@ export function RecordsPage() {
             <option value="all">Todos los cursos</option>
             {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <input
+            type="date"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+            className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base"
+            aria-label="Fecha desde"
+          />
+          <input
+            type="date"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+            className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base"
+            aria-label="Fecha hasta"
+          />
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-3 text-base"
+          >
+            <option value={10}>10 por pagina</option>
+            <option value={25}>25 por pagina</option>
+            <option value={50}>50 por pagina</option>
+            <option value={100}>100 por pagina</option>
+          </select>
         </div>
       </div>
 
       <div className="space-y-3">
-        <h2 className="text-2xl font-bold">Historial de Registros ({sortedRecords.length})</h2>
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 space-y-3">
+          <h3 className="text-lg sm:text-xl font-semibold">Promedio por salon</h3>
+          {classroomAverages.length === 0 ? (
+            <p className="text-sm text-zinc-500">No hay datos para calcular promedios con los filtros actuales.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {classroomAverages.map((item) => (
+                <div key={item.classroomName} className="rounded-xl border border-zinc-200 dark:border-zinc-700 p-3 bg-zinc-50 dark:bg-zinc-800/40">
+                  <div className="font-semibold text-zinc-900 dark:text-zinc-100">{item.classroomName}</div>
+                  <div className="text-sm text-zinc-600 dark:text-zinc-300">
+                    Promedio alumnos:{' '}
+                    <span className="font-semibold">
+                      {item.averageStudents === null ? '-' : item.averageStudents.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-1">
+                    Registros: {item.totalRecords} · Con alumnos: {item.countWithStudents}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <h2 className="text-2xl font-bold">Historial de Registros ({sortedRecords.length})</h2>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={safePage <= 1}
+              className="px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            <span className="text-sm text-zinc-600 dark:text-zinc-300">
+              Pagina {safePage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={safePage >= totalPages}
+              className="px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
 
         {sortedRecords.length === 0 && (
           <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 text-sm text-zinc-500">
@@ -486,7 +607,7 @@ export function RecordsPage() {
           </div>
         )}
 
-        {sortedRecords.map((record) => (
+        {paginatedRecords.map((record) => (
           <div key={record.id} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 sm:p-5 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>

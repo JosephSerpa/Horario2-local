@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore, DayOfWeek, Classroom, Course, ClassSession, Professor } from '../store';
 import { useTranslation } from '../i18n';
-import { Plus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown, Camera, RefreshCw, RotateCcw } from 'lucide-react';
+import { Plus, Minus, Edit2, Trash2, Save, X, LogOut, Check, Download, Upload, Code, Copy, Printer, Clock, Users, BookOpen, User as UserIcon, AlertTriangle, Search, ChevronDown, Camera, RefreshCw, RotateCcw, Monitor } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
@@ -16,7 +16,7 @@ interface BackupItem {
 }
 
 export function AdminPage() {
-  const { isAdmin, setIsAdmin, language, classrooms, setClassrooms, courses, setCourses, sessions, setSessions, professors, setProfessors, addHistoryLog, historyLogs, loadFromCloud, saveToCloud } = useAppStore();
+  const { isAdmin, csrfToken, language, classrooms, setClassrooms, courses, setCourses, sessions, setSessions, professors, setProfessors, addHistoryLog, historyLogs, loadFromCloud, saveToCloud, loginAdmin, logoutAdmin, refreshAdminSession } = useAppStore();
   const t = useTranslation(language);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,8 +24,9 @@ export function AdminPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'sessions' | 'courses' | 'classrooms' | 'professors' | 'data' | 'alerts'>('sessions');
+  const [activeTab, setActiveTab] = useState<'sessions' | 'courses' | 'classrooms' | 'professors' | 'pcs' | 'data' | 'alerts'>('sessions');
   const [generatedCode, setGeneratedCode] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeDay, setActiveDay] = useState<DayOfWeek>(() => {
@@ -122,6 +123,20 @@ export function AdminPage() {
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [isBackupsLoading, setIsBackupsLoading] = useState(false);
   const [backupActionBusy, setBackupActionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await refreshAdminSession();
+      } finally {
+        if (!cancelled) setIsCheckingAuth(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshAdminSession]);
 
   const activeSessions = sessions.filter((s) => s.dayOfWeek === activeDay);
 
@@ -271,20 +286,21 @@ export function AdminPage() {
     return { h, m };
   }, [activeSessions, currentTime, isToday]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === 'joseph' && password === 'elmaster123') {
-      setIsAdmin(true);
+    const ok = await loginAdmin(username.trim(), password);
+    if (ok) {
       setError('');
     } else {
       setError(t.loginError);
     }
   };
 
-  const handleLogout = () => {
-    setIsAdmin(false);
+  const handleLogout = async () => {
+    await logoutAdmin();
     setUsername('');
     setPassword('');
+    navigate('/admin');
   };
 
   // --- Course Handlers ---
@@ -891,7 +907,10 @@ export function AdminPage() {
   const createBackupNow = async () => {
     setBackupActionBusy('create');
     try {
-      const response = await fetch('/api/backups/create', { method: 'POST' });
+      const response = await fetch('/api/backups/create', {
+        method: 'POST',
+        headers: csrfToken ? { 'x-csrf-token': csrfToken } : undefined,
+      });
       if (!response.ok) throw new Error('Failed to create backup');
       await loadBackups();
     } catch (error) {
@@ -913,7 +932,10 @@ export function AdminPage() {
           try {
             const response = await fetch('/api/backups/restore', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+              },
               body: JSON.stringify({ filename }),
             });
             if (!response.ok) throw new Error('Failed to restore backup');
@@ -928,6 +950,25 @@ export function AdminPage() {
       },
     });
   };
+
+  const setClassroomPcCount = (id: string, nextCount: number) => {
+    const safeCount = Number.isFinite(nextCount) ? Math.max(0, Math.min(500, Math.round(nextCount))) : 0;
+    setClassrooms(classrooms.map((c) => (c.id === id ? { ...c, pcCount: safeCount } : c)));
+  };
+
+  const updateClassroomPcCountDelta = (id: string, delta: number) => {
+    const target = classrooms.find((c) => c.id === id);
+    const current = typeof target?.pcCount === 'number' ? target.pcCount : 0;
+    setClassroomPcCount(id, current + delta);
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-zinc-50 dark:bg-zinc-950">
+        <div className="text-zinc-600 dark:text-zinc-300">Verificando sesion...</div>
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (
@@ -1028,7 +1069,7 @@ export function AdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-4 mb-8 border-b border-zinc-200 dark:border-zinc-800 pb-4 overflow-x-auto hide-scrollbar">
-        {(['sessions', 'courses', 'classrooms', 'professors', 'data', 'alerts'] as const).map((tab) => (
+        {(['sessions', 'courses', 'classrooms', 'professors', 'pcs', 'data', 'alerts'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1794,6 +1835,88 @@ export function AdminPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* --- PC DISTRIBUTION TAB --- */}
+          {activeTab === 'pcs' && (
+            <div className="space-y-8">
+              <div className="bg-white dark:bg-zinc-900 p-6 sm:p-8 rounded-3xl shadow-sm border border-zinc-200 dark:border-zinc-800">
+                <h2 className="text-2xl font-semibold mb-2">Distribucion de PC</h2>
+                <p className="text-zinc-600 dark:text-zinc-400 mb-8 max-w-2xl">
+                  Visualiza y ajusta facilmente cuantas computadoras hay disponibles en cada salon.
+                </p>
+
+                {classrooms.length === 0 ? (
+                  <div className="text-zinc-500">No hay salones creados todavia.</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {classrooms.map((classroom) => {
+                      const pcCount = typeof classroom.pcCount === 'number' ? classroom.pcCount : 0;
+                      const renderedIcons = Math.min(pcCount, 120);
+                      const hiddenIcons = Math.max(0, pcCount - renderedIcons);
+
+                      return (
+                        <div key={classroom.id} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 p-4">
+                          <div className="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                              <div className="font-semibold text-zinc-900 dark:text-zinc-100">{classroom.name}</div>
+                              <div className="text-sm text-zinc-500">{pcCount} PC disponibles</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => updateClassroomPcCountDelta(classroom.id, -1)}
+                                className="p-2 rounded-lg bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <input
+                                type="number"
+                                min={0}
+                                max={500}
+                                value={pcCount}
+                                onChange={(e) => setClassroomPcCount(classroom.id, Number(e.target.value))}
+                                className="w-20 px-2 py-1.5 text-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateClassroomPcCountDelta(classroom.id, 1)}
+                                className="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 min-h-[76px]">
+                            {pcCount === 0 ? (
+                              <div className="text-sm text-zinc-500">Sin PCs registradas.</div>
+                            ) : (
+                              <>
+                                <div className="grid grid-cols-8 sm:grid-cols-10 gap-2">
+                                  {Array.from({ length: renderedIcons }).map((_, idx) => (
+                                    <div
+                                      key={`${classroom.id}-pc-${idx}`}
+                                      className="w-7 h-7 rounded-md bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 flex items-center justify-center"
+                                      title={`PC ${idx + 1}`}
+                                    >
+                                      <Monitor size={14} />
+                                    </div>
+                                  ))}
+                                </div>
+                                {hiddenIcons > 0 && (
+                                  <div className="text-xs text-zinc-500 mt-2">+ {hiddenIcons} PCs adicionales</div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

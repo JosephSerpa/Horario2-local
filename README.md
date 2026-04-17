@@ -10,6 +10,26 @@ Proyecto React + Express con persistencia local en SQLite, guardada dentro del r
 
 1. Instalar dependencias:
    `npm install`
+2. Configurar variables de entorno:
+   - Copiar `.env.example` a `.env`
+   - Definir `ADMIN_USERNAME` y `ADMIN_PASSWORD`
+3. Ejecutar el servidor (frontend + API):
+   `npm run dev`
+4. Abrir en navegador:
+   `http://localhost:3000`
+
+## Seguridad (resumen)
+
+- Login admin validado en backend con sesion por cookie `HttpOnly`.
+- API de escritura protegida por autenticacion + token CSRF.
+- Cabeceras HTTP de seguridad (CSP, HSTS en produccion, `X-Frame-Options`, etc.).
+- Validacion y saneo de payloads para horarios, cursos y registros diarios.
+- Limites de tamano/rate-limit para reducir abuso.
+- Registros diarios restringidos a imagenes `jpeg/jpg/png/webp` en Data URL.
+
+## Ejecutar en local (modo rapido)
+
+1. `npm install`
 2. Ejecutar el servidor (frontend + API):
    `npm run dev`
 3. Abrir en navegador:

@@ -13,11 +13,12 @@ import { RecordsPage } from './pages/RecordsPage';
 import { useAppStore } from './store';
 
 export default function App() {
-  const { loadFromCloud } = useAppStore();
+  const { loadFromCloud, refreshAdminSession } = useAppStore();
 
   useEffect(() => {
-    loadFromCloud();
-  }, [loadFromCloud]);
+    void refreshAdminSession();
+    void loadFromCloud();
+  }, [loadFromCloud, refreshAdminSession]);
 
   return (
     <BrowserRouter>
